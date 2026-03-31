@@ -1,4 +1,4 @@
-import { LayoutDashboard, ShoppingCart, Receipt, Settings, LogOut, Droplets, DollarSign } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, Receipt, Settings, LogOut, DollarSign } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 interface SidebarProps {
@@ -21,9 +21,7 @@ export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
     <aside className="w-64 bg-white border-r border-slate-200 flex flex-col min-h-screen">
       <div className="p-6 border-b border-slate-200">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
-            <Droplets className="w-5 h-5 text-white" />
-          </div>
+          <img src="/icons/icon-64x64.png" alt="Logo" className="w-10 h-10 rounded-xl" />
           <div>
             <h1 className="font-bold text-slate-900 text-sm">Control de ventas anual</h1>
             <p className="text-xs text-slate-400">Gestion de negocio</p>

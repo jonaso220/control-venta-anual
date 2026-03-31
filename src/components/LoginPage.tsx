@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Droplets, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function LoginPage() {
@@ -27,9 +27,7 @@ export default function LoginPage() {
       <div className="max-w-md w-full mx-4">
         <div className="card text-center">
           <div className="flex justify-center mb-6">
-            <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-200">
-              <Droplets className="w-9 h-9 text-white" />
-            </div>
+            <img src="/icons/icon-128x128.png" alt="Logo" className="w-16 h-16 rounded-2xl shadow-lg shadow-blue-200" />
           </div>
           <h1 className="text-2xl font-bold text-slate-900 mb-2">
             Control de ventas anual
