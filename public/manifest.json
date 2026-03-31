@@ -1,0 +1,18 @@
+{
+  "name": "Control de ventas anual",
+  "short_name": "Control Ventas",
+  "description": "Gestion de ventas, gastos y ganancias",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#1e40af",
+  "icons": [
+    { "src": "/icons/icon-48x48.png", "sizes": "48x48", "type": "image/png" },
+    { "src": "/icons/icon-64x64.png", "sizes": "64x64", "type": "image/png" },
+    { "src": "/icons/icon-128x128.png", "sizes": "128x128", "type": "image/png" },
+    { "src": "/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-256x256.png", "sizes": "256x256", "type": "image/png" },
+    { "src": "/icons/icon-384x384.png", "sizes": "384x384", "type": "image/png" },
+    { "src": "/icons/icon-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
