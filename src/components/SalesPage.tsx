@@ -115,16 +115,16 @@ export default function SalesPage({ sales, prices, year, onSave }: SalesPageProp
                   {isEditing ? (
                     <>
                       <td className="px-6 py-2">
-                        <input type="number" min="0" className="input-field text-right !py-1.5" value={form.sifones} onChange={e => setForm(f => ({ ...f, sifones: Number(e.target.value) || 0 }))} />
+                        <input type="number" min="0" className="input-field text-right !py-1.5" value={form.sifones} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, sifones: Number(e.target.value) || 0 }))} />
                       </td>
                       <td className="px-6 py-2">
-                        <input type="number" min="0" className="input-field text-right !py-1.5" value={form.litros6} onChange={e => setForm(f => ({ ...f, litros6: Number(e.target.value) || 0 }))} />
+                        <input type="number" min="0" className="input-field text-right !py-1.5" value={form.litros6} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros6: Number(e.target.value) || 0 }))} />
                       </td>
                       <td className="px-6 py-2">
-                        <input type="number" min="0" className="input-field text-right !py-1.5" value={form.litros12} onChange={e => setForm(f => ({ ...f, litros12: Number(e.target.value) || 0 }))} />
+                        <input type="number" min="0" className="input-field text-right !py-1.5" value={form.litros12} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros12: Number(e.target.value) || 0 }))} />
                       </td>
                       <td className="px-6 py-2">
-                        <input type="number" min="0" className="input-field text-right !py-1.5" value={form.litros20} onChange={e => setForm(f => ({ ...f, litros20: Number(e.target.value) || 0 }))} />
+                        <input type="number" min="0" className="input-field text-right !py-1.5" value={form.litros20} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros20: Number(e.target.value) || 0 }))} />
                       </td>
                       <td className="px-6 py-3 text-right text-slate-400">-</td>
                       <td className="px-6 py-3 text-right text-slate-400">-</td>
