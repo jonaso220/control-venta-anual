@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Plus, Pencil, Trash2, Save, Receipt, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Plus, Pencil, Trash2, Save, Receipt, ArrowUpDown, ArrowUp, ArrowDown, Search } from 'lucide-react';
 import type { Expense, ExpenseCategory } from '../types';
 import { EXPENSE_CATEGORIES } from '../types';
 import { formatCurrency } from './Dashboard';
@@ -30,6 +30,9 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [searchText, setSearchText] = useState('');
+  const [filterCategory, setFilterCategory] = useState<string>('');
+  const [filterStatus, setFilterStatus] = useState<string>('');
 
   const totalActive = expenses.filter(e => e.isActive).reduce((a, e) => a + e.amount, 0);
 
@@ -43,9 +46,21 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
     }
   }
 
+  const filteredExpenses = useMemo(() => {
+    let list = expenses;
+    if (searchText.trim()) {
+      const q = searchText.toLowerCase();
+      list = list.filter(e => e.name.toLowerCase().includes(q) || (e.notes || '').toLowerCase().includes(q));
+    }
+    if (filterCategory) list = list.filter(e => e.category === filterCategory);
+    if (filterStatus === 'active') list = list.filter(e => e.isActive);
+    if (filterStatus === 'inactive') list = list.filter(e => !e.isActive);
+    return list;
+  }, [expenses, searchText, filterCategory, filterStatus]);
+
   const sortedExpenses = useMemo(() => {
-    if (!sortKey) return expenses;
-    return [...expenses].sort((a, b) => {
+    if (!sortKey) return filteredExpenses;
+    return [...filteredExpenses].sort((a, b) => {
       let cmp = 0;
       switch (sortKey) {
         case 'name': cmp = a.name.localeCompare(b.name); break;
@@ -56,7 +71,7 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
       }
       return sortDir === 'desc' ? -cmp : cmp;
     });
-  }, [expenses, sortKey, sortDir]);
+  }, [filteredExpenses, sortKey, sortDir]);
 
   function SortIcon({ col }: { col: SortKey }) {
     if (sortKey !== col) return <ArrowUpDown className="w-3 h-3 text-slate-300" />;
@@ -144,6 +159,25 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
             Agregar Gasto
           </button>
         </div>
+      </div>
+
+      {/* Search and filters */}
+      <div className="flex gap-3 flex-wrap">
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input type="text" className="input-field !pl-9" placeholder="Buscar gasto..." value={searchText} onChange={e => setSearchText(e.target.value)} />
+        </div>
+        <select className="input-field !w-auto" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
+          <option value="">Todas las categorias</option>
+          {Object.entries(EXPENSE_CATEGORIES).map(([key, label]) => (
+            <option key={key} value={key}>{label}</option>
+          ))}
+        </select>
+        <select className="input-field !w-auto" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+          <option value="">Todos</option>
+          <option value="active">Activos</option>
+          <option value="inactive">Inactivos</option>
+        </select>
       </div>
 
       {isAdding && (

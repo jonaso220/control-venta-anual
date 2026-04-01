@@ -1,12 +1,14 @@
 import { useState } from 'react';
-import { Database, Shield, User } from 'lucide-react';
+import { Database, Shield, User, Download, FileSpreadsheet, FileJson } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 interface SettingsPageProps {
   onInitDefaults: () => Promise<void>;
+  onBackupExcel: () => void;
+  onBackupJSON: () => void;
 }
 
-export default function SettingsPage({ onInitDefaults }: SettingsPageProps) {
+export default function SettingsPage({ onInitDefaults, onBackupExcel, onBackupJSON }: SettingsPageProps) {
   const { user } = useAuth();
   const [initializing, setInitializing] = useState(false);
   const [initialized, setInitialized] = useState(false);
@@ -24,31 +26,31 @@ export default function SettingsPage({ onInitDefaults }: SettingsPageProps) {
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
-        <h2 className="text-2xl font-bold text-slate-900">Configuracion</h2>
-        <p className="text-slate-500">Ajustes de la aplicacion</p>
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Configuracion</h2>
+        <p className="text-slate-500 dark:text-slate-400">Ajustes de la aplicacion</p>
       </div>
 
       <div className="card">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-            <User className="w-5 h-5 text-blue-600" />
+          <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
+            <User className="w-5 h-5 text-blue-600 dark:text-blue-400" />
           </div>
           <div>
-            <h3 className="font-semibold text-slate-900">Cuenta</h3>
+            <h3 className="font-semibold text-slate-900 dark:text-slate-100">Cuenta</h3>
             <p className="text-xs text-slate-400">Informacion de tu cuenta de Google</p>
           </div>
         </div>
         <div className="space-y-3 text-sm">
-          <div className="flex justify-between py-2 border-b border-slate-100">
-            <span className="text-slate-500">Nombre</span>
-            <span className="font-medium text-slate-900">{user?.displayName}</span>
+          <div className="flex justify-between py-2 border-b border-slate-100 dark:border-slate-700">
+            <span className="text-slate-500 dark:text-slate-400">Nombre</span>
+            <span className="font-medium text-slate-900 dark:text-slate-100">{user?.displayName}</span>
           </div>
-          <div className="flex justify-between py-2 border-b border-slate-100">
-            <span className="text-slate-500">Email</span>
-            <span className="font-medium text-slate-900">{user?.email}</span>
+          <div className="flex justify-between py-2 border-b border-slate-100 dark:border-slate-700">
+            <span className="text-slate-500 dark:text-slate-400">Email</span>
+            <span className="font-medium text-slate-900 dark:text-slate-100">{user?.email}</span>
           </div>
           <div className="flex justify-between py-2">
-            <span className="text-slate-500">UID</span>
+            <span className="text-slate-500 dark:text-slate-400">UID</span>
             <span className="font-mono text-xs text-slate-400">{user?.uid}</span>
           </div>
         </div>
@@ -56,15 +58,40 @@ export default function SettingsPage({ onInitDefaults }: SettingsPageProps) {
 
       <div className="card">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
-            <Database className="w-5 h-5 text-amber-600" />
+          <div className="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
+            <Download className="w-5 h-5 text-green-600 dark:text-green-400" />
           </div>
           <div>
-            <h3 className="font-semibold text-slate-900">Base de Datos</h3>
+            <h3 className="font-semibold text-slate-900 dark:text-slate-100">Backup / Exportar Datos</h3>
+            <p className="text-xs text-slate-400">Descarga todos tus datos del año actual</p>
+          </div>
+        </div>
+        <p className="text-sm text-slate-600 dark:text-slate-300 mb-4">
+          Descarga un respaldo completo con ventas, gastos fijos, gastos variables y precios.
+        </p>
+        <div className="flex gap-3">
+          <button onClick={onBackupExcel} className="btn-secondary flex items-center gap-2">
+            <FileSpreadsheet className="w-4 h-4" />
+            Descargar Excel
+          </button>
+          <button onClick={onBackupJSON} className="btn-secondary flex items-center gap-2">
+            <FileJson className="w-4 h-4" />
+            Descargar JSON
+          </button>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900/30 rounded-lg flex items-center justify-center">
+            <Database className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-slate-900 dark:text-slate-100">Base de Datos</h3>
             <p className="text-xs text-slate-400">Inicializar datos por defecto</p>
           </div>
         </div>
-        <p className="text-sm text-slate-600 mb-4">
+        <p className="text-sm text-slate-600 dark:text-slate-300 mb-4">
           Esto creara los gastos fijos por defecto (BPS, DGI, Combustible, etc.) si no existen. No se sobreescribiran datos existentes.
         </p>
         <button
@@ -77,22 +104,22 @@ export default function SettingsPage({ onInitDefaults }: SettingsPageProps) {
         </button>
       </div>
 
-      <div className="card border-blue-200 bg-blue-50/30">
+      <div className="card border-blue-200 bg-blue-50/30 dark:bg-blue-900/10 dark:border-blue-800">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-            <Shield className="w-5 h-5 text-blue-600" />
+          <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
+            <Shield className="w-5 h-5 text-blue-600 dark:text-blue-400" />
           </div>
           <div>
-            <h3 className="font-semibold text-slate-900">Firebase</h3>
+            <h3 className="font-semibold text-slate-900 dark:text-slate-100">Firebase</h3>
             <p className="text-xs text-slate-400">Configuracion de la base de datos</p>
           </div>
         </div>
-        <p className="text-sm text-slate-600 mb-3">
+        <p className="text-sm text-slate-600 dark:text-slate-300 mb-3">
           Para conectar con Firebase, necesitas crear un proyecto en{' '}
           <a href="https://console.firebase.google.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
             Firebase Console
           </a>{' '}
-          y configurar las variables de entorno en el archivo <code className="bg-slate-100 px-1.5 py-0.5 rounded text-xs">.env</code>
+          y configurar las variables de entorno en el archivo <code className="bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded text-xs">.env</code>
         </p>
         <div className="bg-slate-900 rounded-lg p-4 text-sm font-mono text-slate-300 space-y-1">
           <p className="text-slate-500"># .env</p>

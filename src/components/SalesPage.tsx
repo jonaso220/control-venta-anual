@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
-import { Save, ShoppingCart } from 'lucide-react';
-import type { SalesEntry, PriceConfig } from '../types';
+import { Save, ShoppingCart, Target } from 'lucide-react';
+import type { SalesEntry, PriceConfig, SalesGoal } from '../types';
 import { MONTHS } from '../types';
 import { formatCurrency } from './Dashboard';
 
@@ -9,9 +9,11 @@ interface SalesPageProps {
   prices: PriceConfig;
   year: number;
   onSave: (entry: SalesEntry) => Promise<void>;
+  goals: SalesGoal[];
+  onSaveGoal: (goal: Omit<SalesGoal, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
 }
 
-export default function SalesPage({ sales, prices, year, onSave }: SalesPageProps) {
+export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGoal }: SalesPageProps) {
   const [editingMonth, setEditingMonth] = useState<number | null>(null);
   const [form, setForm] = useState({ sifones: 0, litros6: 0, litros12: 0, litros20: 0 });
   const [saving, setSaving] = useState(false);
@@ -172,6 +174,97 @@ export default function SalesPage({ sales, prices, year, onSave }: SalesPageProp
             </tr>
           </tfoot>
         </table>
+      </div>
+
+      {/* Goals section */}
+      <GoalsSection goals={goals} year={year} onSaveGoal={onSaveGoal} monthlyData={Array.from({ length: 12 }, (_, i) => {
+        const entry = salesMap.get(i + 1);
+        return { month: i + 1, income: calcIncome(entry) };
+      })} />
+    </div>
+  );
+}
+
+function GoalsSection({ goals, year, onSaveGoal, monthlyData }: {
+  goals: SalesGoal[];
+  year: number;
+  onSaveGoal: (goal: Omit<SalesGoal, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
+  monthlyData: { month: number; income: number }[];
+}) {
+  const [editingMonth, setEditingMonth] = useState<number | null>(null);
+  const [targetIncome, setTargetIncome] = useState(0);
+  const [saving, setSaving] = useState(false);
+
+  function startEdit(month: number) {
+    const existing = goals.find(g => g.month === month);
+    setTargetIncome(existing?.targetIncome ?? 0);
+    setEditingMonth(month);
+  }
+
+  async function handleSave() {
+    if (editingMonth === null) return;
+    setSaving(true);
+    try {
+      await onSaveGoal({ year, month: editingMonth, targetIncome: targetIncome || undefined });
+      setEditingMonth(null);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <div className="flex items-center gap-2 mb-4">
+        <Target className="w-5 h-5 text-slate-400" />
+        <h3 className="font-semibold text-slate-900 dark:text-slate-100">Metas de Ingreso Mensual - {year}</h3>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+        {MONTHS.map((name, i) => {
+          const month = i + 1;
+          const goal = goals.find(g => g.month === month);
+          const actual = monthlyData.find(m => m.month === month)?.income ?? 0;
+          const target = goal?.targetIncome ?? 0;
+          const pct = target > 0 ? Math.min((actual / target) * 100, 100) : 0;
+          const isEditing = editingMonth === month;
+
+          return (
+            <div key={month} className="border border-slate-200 dark:border-slate-700 rounded-lg p-3">
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">{name}</p>
+              {isEditing ? (
+                <div className="space-y-2">
+                  <input
+                    type="number"
+                    min="0"
+                    className="input-field !py-1 text-sm"
+                    placeholder="Meta de ingreso"
+                    value={targetIncome || ''}
+                    onFocus={e => e.target.select()}
+                    onChange={e => setTargetIncome(Number(e.target.value) || 0)}
+                  />
+                  <div className="flex gap-1">
+                    <button onClick={handleSave} disabled={saving} className="btn-primary !py-1 !px-2 text-xs">
+                      {saving ? '...' : 'Guardar'}
+                    </button>
+                    <button onClick={() => setEditingMonth(null)} className="btn-secondary !py-1 !px-2 text-xs">X</button>
+                  </div>
+                </div>
+              ) : (
+                <div onClick={() => startEdit(month)} className="cursor-pointer">
+                  {target > 0 ? (
+                    <>
+                      <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 mb-1">
+                        <div className={`h-1.5 rounded-full ${pct >= 100 ? 'bg-green-500' : pct >= 50 ? 'bg-blue-500' : 'bg-amber-500'}`} style={{ width: `${pct}%` }} />
+                      </div>
+                      <p className="text-xs text-slate-500">{formatCurrency(actual)} / {formatCurrency(target)}</p>
+                    </>
+                  ) : (
+                    <p className="text-xs text-slate-400 italic">Sin meta - clic para definir</p>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

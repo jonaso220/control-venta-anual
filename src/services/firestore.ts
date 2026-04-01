@@ -13,7 +13,7 @@ import {
   type Firestore,
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import type { SalesEntry, Expense, PriceConfig } from '../types';
+import type { SalesEntry, Expense, PriceConfig, VariableExpense, SalesGoal } from '../types';
 import { DEFAULT_PRICES, DEFAULT_EXPENSES } from '../types';
 
 function getDb(): Firestore {
@@ -90,6 +90,81 @@ export async function savePrices(uid: string, prices: PriceConfig, year: number)
     ...prices,
     updatedAt: serverTimestamp(),
   });
+}
+
+// Variable Expenses
+export async function getVariableExpenses(uid: string, year: number): Promise<VariableExpense[]> {
+  const startDate = `${year}-01-01`;
+  const endDate = `${year}-12-31`;
+  const q = query(
+    userCollection(uid, 'variableExpenses'),
+    where('date', '>=', startDate),
+    where('date', '<=', endDate),
+    orderBy('date', 'desc')
+  );
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as VariableExpense));
+}
+
+export async function saveVariableExpense(uid: string, expense: Omit<VariableExpense, 'id' | 'createdAt' | 'updatedAt'>, id?: string): Promise<string> {
+  if (id) {
+    await updateDoc(doc(userCollection(uid, 'variableExpenses'), id), {
+      ...expense,
+      updatedAt: serverTimestamp(),
+    });
+    return id;
+  } else {
+    const docRef = doc(userCollection(uid, 'variableExpenses'));
+    await setDoc(docRef, {
+      ...expense,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    return docRef.id;
+  }
+}
+
+export async function deleteVariableExpense(uid: string, id: string): Promise<void> {
+  await deleteDoc(doc(userCollection(uid, 'variableExpenses'), id));
+}
+
+// Price History
+export async function savePriceHistory(uid: string, year: number, prices: PriceConfig): Promise<void> {
+  const docRef = doc(userCollection(uid, 'priceHistory'));
+  await setDoc(docRef, {
+    year,
+    ...prices,
+    changedAt: serverTimestamp(),
+  });
+}
+
+export async function getPriceHistory(uid: string, year: number): Promise<Array<PriceConfig & { changedAt: Date }>> {
+  const q = query(
+    userCollection(uid, 'priceHistory'),
+    where('year', '==', year),
+    orderBy('changedAt', 'desc')
+  );
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((d) => d.data() as PriceConfig & { changedAt: Date });
+}
+
+// Sales Goals
+export async function getGoals(uid: string, year: number): Promise<SalesGoal[]> {
+  const q = query(
+    userCollection(uid, 'goals'),
+    where('year', '==', year),
+    orderBy('month', 'asc')
+  );
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as SalesGoal));
+}
+
+export async function saveGoal(uid: string, goal: Omit<SalesGoal, 'id' | 'createdAt' | 'updatedAt'>): Promise<void> {
+  const docId = `${goal.year}-${String(goal.month).padStart(2, '0')}`;
+  await setDoc(doc(userCollection(uid, 'goals'), docId), {
+    ...goal,
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
 }
 
 // Initialize default expenses for new users

@@ -39,6 +39,30 @@ export type ExpenseCategory =
   | 'vehiculo'
   | 'otros';
 
+export interface VariableExpense {
+  id?: string;
+  date: string; // YYYY-MM-DD
+  description: string;
+  amount: number;
+  category: ExpenseCategory;
+  notes?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface SalesGoal {
+  id?: string;
+  year: number;
+  month: number; // 1-12
+  targetIncome?: number;
+  targetSifones?: number;
+  targetLitros6?: number;
+  targetLitros12?: number;
+  targetLitros20?: number;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
 export interface MonthlyData {
   month: number;
   year: number;
