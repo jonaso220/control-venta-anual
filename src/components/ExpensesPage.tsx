@@ -16,6 +16,7 @@ const EMPTY_EXPENSE: Omit<Expense, 'id' | 'createdAt' | 'updatedAt'> = {
   dueDate: '',
   category: 'otros',
   isActive: true,
+  notes: '',
 };
 
 export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPageProps) {
@@ -35,6 +36,7 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
       dueDate: expense.dueDate,
       category: expense.category,
       isActive: expense.isActive,
+      notes: expense.notes || '',
     });
     setEditingId(expense.id!);
     setIsAdding(false);
@@ -132,6 +134,7 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
               <th className="px-6 py-3">Vencimiento</th>
               <th className="px-6 py-3 text-right">Monto</th>
               <th className="px-6 py-3 text-center">Estado</th>
+              <th className="px-6 py-3">Notas</th>
               <th className="px-6 py-3 text-center">Acciones</th>
             </tr>
           </thead>
@@ -142,7 +145,7 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
               if (isEditing) {
                 return (
                   <tr key={expense.id} className="bg-blue-50">
-                    <td colSpan={6} className="px-6 py-4">
+                    <td colSpan={7} className="px-6 py-4">
                       <FormFields form={form} setForm={setForm} />
                       <div className="flex gap-2 mt-3">
                         <button onClick={handleSave} disabled={saving || !form.name.trim()} className="btn-primary !py-1.5 !px-3 text-xs flex items-center gap-1">
@@ -171,6 +174,7 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
                       {expense.isActive ? 'Activo' : 'Inactivo'}
                     </span>
                   </td>
+                  <td className="px-6 py-3 text-slate-500 text-sm">{expense.notes || '-'}</td>
                   <td className="px-6 py-3 text-center">
                     <div className="flex gap-1 justify-center">
                       <button onClick={() => startEditing(expense)} className="btn-icon" title="Editar">
@@ -191,7 +195,7 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
             })}
             {expenses.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
+                <td colSpan={7} className="px-6 py-12 text-center text-slate-400">
                   No hay gastos registrados. Haz clic en "Agregar Gasto" para comenzar.
                 </td>
               </tr>
@@ -201,7 +205,7 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
             <tr className="bg-slate-50 font-semibold">
               <td className="px-6 py-3" colSpan={3}>Total (activos)</td>
               <td className="px-6 py-3 text-right text-red-600">{formatCurrency(totalActive)}</td>
-              <td colSpan={2}></td>
+              <td colSpan={3}></td>
             </tr>
           </tfoot>
         </table>
@@ -215,7 +219,7 @@ function FormFields({ form, setForm }: {
   setForm: React.Dispatch<React.SetStateAction<typeof form>>;
 }) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+    <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
       <div>
         <label className="block text-xs font-medium text-slate-500 mb-1">Nombre</label>
         <input
@@ -269,6 +273,16 @@ function FormFields({ form, setForm }: {
           <option value="active">Activo</option>
           <option value="inactive">Inactivo</option>
         </select>
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-slate-500 mb-1">Notas</label>
+        <input
+          type="text"
+          className="input-field"
+          placeholder="Ej: Detalle del gasto"
+          value={form.notes || ''}
+          onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+        />
       </div>
     </div>
   );

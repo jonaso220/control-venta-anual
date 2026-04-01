@@ -26,6 +26,7 @@ export interface Expense {
   dueDate: string; // e.g., "19 DE C/MES", "MENSUAL", "8 SEMANAL"
   category: ExpenseCategory;
   isActive: boolean;
+  notes?: string;
   createdAt?: Date;
   updatedAt?: Date;
 }
