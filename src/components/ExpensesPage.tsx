@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Plus, Pencil, Trash2, Save, Receipt } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Plus, Pencil, Trash2, Save, Receipt, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import type { Expense, ExpenseCategory } from '../types';
 import { EXPENSE_CATEGORIES } from '../types';
 import { formatCurrency } from './Dashboard';
@@ -19,14 +19,49 @@ const EMPTY_EXPENSE: Omit<Expense, 'id' | 'createdAt' | 'updatedAt'> = {
   notes: '',
 };
 
+type SortKey = 'name' | 'category' | 'dueDate' | 'amount' | 'isActive';
+type SortDir = 'asc' | 'desc';
+
 export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPageProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [form, setForm] = useState(EMPTY_EXPENSE);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   const totalActive = expenses.filter(e => e.isActive).reduce((a, e) => a + e.amount, 0);
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      if (sortDir === 'asc') setSortDir('desc');
+      else { setSortKey(null); setSortDir('asc'); }
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  }
+
+  const sortedExpenses = useMemo(() => {
+    if (!sortKey) return expenses;
+    return [...expenses].sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case 'name': cmp = a.name.localeCompare(b.name); break;
+        case 'category': cmp = a.category.localeCompare(b.category); break;
+        case 'dueDate': cmp = a.dueDate.localeCompare(b.dueDate); break;
+        case 'amount': cmp = a.amount - b.amount; break;
+        case 'isActive': cmp = (a.isActive === b.isActive ? 0 : a.isActive ? -1 : 1); break;
+      }
+      return sortDir === 'desc' ? -cmp : cmp;
+    });
+  }, [expenses, sortKey, sortDir]);
+
+  function SortIcon({ col }: { col: SortKey }) {
+    if (sortKey !== col) return <ArrowUpDown className="w-3 h-3 text-slate-300" />;
+    return sortDir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />;
+  }
 
 
   function startEditing(expense: Expense) {
@@ -129,17 +164,27 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
         <table className="w-full">
           <thead>
             <tr className="table-header">
-              <th className="px-6 py-3">Nombre</th>
-              <th className="px-6 py-3">Categoria</th>
-              <th className="px-6 py-3">Vencimiento</th>
-              <th className="px-6 py-3 text-right">Monto</th>
-              <th className="px-6 py-3 text-center">Estado</th>
+              <th className="px-6 py-3 cursor-pointer select-none" onClick={() => toggleSort('name')}>
+                <span className="inline-flex items-center gap-1">Nombre <SortIcon col="name" /></span>
+              </th>
+              <th className="px-6 py-3 cursor-pointer select-none" onClick={() => toggleSort('category')}>
+                <span className="inline-flex items-center gap-1">Categoria <SortIcon col="category" /></span>
+              </th>
+              <th className="px-6 py-3 cursor-pointer select-none" onClick={() => toggleSort('dueDate')}>
+                <span className="inline-flex items-center gap-1">Vencimiento <SortIcon col="dueDate" /></span>
+              </th>
+              <th className="px-6 py-3 text-right cursor-pointer select-none" onClick={() => toggleSort('amount')}>
+                <span className="inline-flex items-center gap-1 justify-end">Monto <SortIcon col="amount" /></span>
+              </th>
+              <th className="px-6 py-3 text-center cursor-pointer select-none" onClick={() => toggleSort('isActive')}>
+                <span className="inline-flex items-center gap-1 justify-center">Estado <SortIcon col="isActive" /></span>
+              </th>
               <th className="px-6 py-3">Notas</th>
               <th className="px-6 py-3 text-center">Acciones</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {expenses.map(expense => {
+            {sortedExpenses.map(expense => {
               const isEditing = editingId === expense.id;
 
               if (isEditing) {
