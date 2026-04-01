@@ -90,16 +90,6 @@ export default function Dashboard({ sales, prices, expenses, year, goals }: Dash
     }));
   }, [expenses]);
 
-  // Month-over-month variation for current month
-  const currentMonth = new Date().getMonth(); // 0-indexed
-  const variation = useMemo(() => {
-    if (currentMonth === 0) return null;
-    const curr = monthlyData[currentMonth]?.ingresos || 0;
-    const prev = monthlyData[currentMonth - 1]?.ingresos || 0;
-    if (prev === 0) return null;
-    return ((curr - prev) / prev) * 100;
-  }, [monthlyData, currentMonth]);
-
   const isProfit = totals.profit >= 0;
 
   return (
@@ -118,14 +108,7 @@ export default function Dashboard({ sales, prices, expenses, year, goals }: Dash
             </div>
           </div>
           <span className="text-2xl font-bold text-slate-900 dark:text-slate-100">{formatCurrency(totals.income)}</span>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400">Año {year}</span>
-            {variation !== null && (
-              <span className={`text-xs font-medium ${variation >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {variation >= 0 ? '+' : ''}{variation.toFixed(1)}% vs mes anterior
-              </span>
-            )}
-          </div>
+          <span className="text-xs text-slate-400">Año {year}</span>
         </div>
 
         <div className="stat-card">
