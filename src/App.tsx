@@ -52,18 +52,24 @@ function AppContent() {
     const requestId = ++loadRequestRef.current;
     setLoading(true);
     try {
-      const [salesData, expensesData, pricesData, varExpData, historyData, goalsData] = await Promise.all([
+      // Core data - must succeed
+      const [salesData, expensesData, pricesData] = await Promise.all([
         getSalesForYear(user.uid, year),
         getExpenses(user.uid),
         getPrices(user.uid, year),
-        getVariableExpenses(user.uid, year),
-        getPriceHistory(user.uid, year),
-        getGoals(user.uid, year),
       ]);
       if (requestId !== loadRequestRef.current) return;
       setSales(salesData);
       setExpenses(expensesData);
       setPrices(pricesData);
+
+      // New features - may fail if Firestore indexes are not yet created
+      const [varExpData, historyData, goalsData] = await Promise.all([
+        getVariableExpenses(user.uid, year).catch(() => []),
+        getPriceHistory(user.uid, year).catch(() => []),
+        getGoals(user.uid, year).catch(() => []),
+      ]);
+      if (requestId !== loadRequestRef.current) return;
       setVariableExpenses(varExpData);
       setPriceHistory(historyData);
       setGoals(goalsData);
