@@ -42,7 +42,7 @@ function AppContent() {
       const [salesData, expensesData, pricesData] = await Promise.all([
         getSalesForYear(user.uid, year),
         getExpenses(user.uid),
-        getPrices(user.uid),
+        getPrices(user.uid, year),
       ]);
       if (requestId !== loadRequestRef.current) return;
       setSales(salesData);
@@ -105,7 +105,7 @@ function AppContent() {
   const handleSavePrices = async (newPrices: PriceConfig) => {
     if (!user) return;
     try {
-      await savePrices(user.uid, newPrices);
+      await savePrices(user.uid, newPrices, year);
       setPrices(newPrices);
     } catch (err) {
       console.error('Error saving prices:', err);
@@ -169,7 +169,7 @@ function AppContent() {
                 <ExpensesPage expenses={expenses} onSave={handleSaveExpense} onDelete={handleDeleteExpense} />
               )}
               {activeTab === 'prices' && (
-                <PricesPage prices={prices} onSave={handleSavePrices} />
+                <PricesPage prices={prices} onSave={handleSavePrices} year={year} />
               )}
               {activeTab === 'settings' && (
                 <SettingsPage onInitDefaults={handleInitDefaults} />

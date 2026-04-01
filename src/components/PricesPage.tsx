@@ -1,14 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Save, DollarSign } from 'lucide-react';
 import type { PriceConfig } from '../types';
 
 interface PricesPageProps {
   prices: PriceConfig;
   onSave: (prices: PriceConfig) => Promise<void>;
+  year: number;
 }
 
-export default function PricesPage({ prices, onSave }: PricesPageProps) {
+export default function PricesPage({ prices, onSave, year }: PricesPageProps) {
   const [form, setForm] = useState<PriceConfig>(prices);
+
+  useEffect(() => {
+    setForm(prices);
+  }, [prices]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -35,7 +40,7 @@ export default function PricesPage({ prices, onSave }: PricesPageProps) {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-slate-900">Precios de Ganancia</h2>
-        <p className="text-slate-500">Configura el margen de ganancia por producto</p>
+        <p className="text-slate-500">Configura el margen de ganancia por producto - {year}</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl">

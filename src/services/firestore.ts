@@ -72,10 +72,10 @@ export async function deleteExpense(uid: string, expenseId: string): Promise<voi
   await deleteDoc(doc(userCollection(uid, 'expenses'), expenseId));
 }
 
-// Prices
-export async function getPrices(uid: string): Promise<PriceConfig> {
+// Prices (per year)
+export async function getPrices(uid: string, year: number): Promise<PriceConfig> {
   const d = getDb();
-  const docRef = doc(d, 'users', uid, 'config', 'prices');
+  const docRef = doc(d, 'users', uid, 'config', `prices-${year}`);
   const snapshot = await getDoc(docRef);
   if (snapshot.exists()) {
     return snapshot.data() as PriceConfig;
@@ -83,9 +83,9 @@ export async function getPrices(uid: string): Promise<PriceConfig> {
   return DEFAULT_PRICES;
 }
 
-export async function savePrices(uid: string, prices: PriceConfig): Promise<void> {
+export async function savePrices(uid: string, prices: PriceConfig, year: number): Promise<void> {
   const d = getDb();
-  const docRef = doc(d, 'users', uid, 'config', 'prices');
+  const docRef = doc(d, 'users', uid, 'config', `prices-${year}`);
   await setDoc(docRef, {
     ...prices,
     updatedAt: serverTimestamp(),
