@@ -107,7 +107,7 @@ export default function Dashboard({ sales, prices, expenses, year, goals }: Dash
               <DollarSign className="w-4 h-4 text-green-600 dark:text-green-400" />
             </div>
           </div>
-          <span className="text-2xl font-bold text-slate-900 dark:text-slate-100">{formatCurrency(totals.income)}</span>
+          <span className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100 break-words">{formatCurrency(totals.income)}</span>
           <span className="text-xs text-slate-400">Año {year}</span>
         </div>
 
@@ -118,7 +118,7 @@ export default function Dashboard({ sales, prices, expenses, year, goals }: Dash
               <Receipt className="w-4 h-4 text-red-600 dark:text-red-400" />
             </div>
           </div>
-          <span className="text-2xl font-bold text-slate-900 dark:text-slate-100">{formatCurrency(totals.expenses)}</span>
+          <span className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100 break-words">{formatCurrency(totals.expenses)}</span>
           <span className="text-xs text-slate-400">{formatCurrency(totalExpensesMonthly)}/mes</span>
         </div>
 
@@ -133,7 +133,7 @@ export default function Dashboard({ sales, prices, expenses, year, goals }: Dash
               )}
             </div>
           </div>
-          <span className={`text-2xl font-bold ${isProfit ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+          <span className={`text-xl sm:text-2xl font-bold break-words ${isProfit ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
             {formatCurrency(totals.profit)}
           </span>
           <span className="text-xs text-slate-400">Despues de gastos</span>
@@ -146,7 +146,7 @@ export default function Dashboard({ sales, prices, expenses, year, goals }: Dash
               <ShoppingCart className="w-4 h-4 text-blue-600 dark:text-blue-400" />
             </div>
           </div>
-          <span className="text-2xl font-bold text-slate-900 dark:text-slate-100">{totals.units.toLocaleString()}</span>
+          <span className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100 break-words">{totals.units.toLocaleString()}</span>
           <span className="text-xs text-slate-400">Total del año</span>
         </div>
       </div>

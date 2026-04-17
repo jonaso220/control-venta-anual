@@ -141,12 +141,12 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">Gastos Fijos</h2>
-          <p className="text-slate-500">Administra tus gastos mensuales</p>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Gastos Fijos</h2>
+          <p className="text-slate-500 dark:text-slate-400">Administra tus gastos mensuales</p>
         </div>
-        <div className="flex gap-4 items-center">
+        <div className="flex gap-3 items-center flex-wrap">
           <div className="stat-card !p-3 !flex-row !items-center !gap-3">
             <Receipt className="w-4 h-4 text-red-500" />
             <div>
@@ -162,18 +162,18 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
       </div>
 
       {/* Search and filters */}
-      <div className="flex gap-3 flex-wrap">
-        <div className="relative flex-1 max-w-xs">
+      <div className="flex gap-2 sm:gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-[200px] sm:max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input type="text" className="input-field !pl-9" placeholder="Buscar gasto..." value={searchText} onChange={e => setSearchText(e.target.value)} />
         </div>
-        <select className="input-field !w-auto" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
+        <select className="input-field w-full sm:!w-auto sm:flex-none" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
           <option value="">Todas las categorias</option>
           {Object.entries(EXPENSE_CATEGORIES).map(([key, label]) => (
             <option key={key} value={key}>{label}</option>
           ))}
         </select>
-        <select className="input-field !w-auto" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+        <select className="input-field w-full sm:!w-auto sm:flex-none" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
           <option value="">Todos</option>
           <option value="active">Activos</option>
           <option value="inactive">Inactivos</option>
@@ -181,8 +181,8 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
       </div>
 
       {isAdding && (
-        <div className="card border-blue-200 bg-blue-50/30">
-          <h3 className="font-semibold text-slate-900 mb-4">Nuevo Gasto</h3>
+        <div className="card border-blue-200 bg-blue-50/30 dark:bg-blue-900/10 dark:border-blue-800">
+          <h3 className="font-semibold text-slate-900 dark:text-slate-100 mb-4">Nuevo Gasto</h3>
           <FormFields form={form} setForm={setForm} />
           <div className="flex gap-2 mt-4">
             <button onClick={handleSave} disabled={saving || !form.name.trim()} className="btn-primary flex items-center gap-2">
@@ -194,8 +194,87 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
         </div>
       )}
 
-      <div className="card overflow-hidden !p-0">
-        <table className="w-full">
+      {/* Mobile card view */}
+      <div className="md:hidden space-y-3">
+        {sortedExpenses.length === 0 ? (
+          <div className="card text-center text-slate-400 py-8">
+            No hay gastos registrados. Haz clic en "Agregar Gasto" para comenzar.
+          </div>
+        ) : (
+          sortedExpenses.map(expense => {
+            const isEditing = editingId === expense.id;
+            if (isEditing) {
+              return (
+                <div key={expense.id} className="card !p-4 border-blue-300 dark:border-blue-700 bg-blue-50/30 dark:bg-blue-900/10">
+                  <FormFields form={form} setForm={setForm} />
+                  <div className="flex gap-2 mt-4">
+                    <button onClick={handleSave} disabled={saving || !form.name.trim()} className="btn-primary flex-1 flex items-center justify-center gap-2 !py-2">
+                      <Save className="w-4 h-4" />
+                      {saving ? 'Guardando...' : 'Guardar'}
+                    </button>
+                    <button onClick={cancel} className="btn-secondary !py-2">Cancelar</button>
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <div key={expense.id} className={`card !p-4 ${!expense.isActive ? 'opacity-60' : ''}`}>
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="min-w-0 flex-1">
+                    <h4 className="font-semibold text-slate-900 dark:text-slate-100 break-words">{expense.name}</h4>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${categoryColors[expense.category]}`}>
+                        {EXPENSE_CATEGORIES[expense.category]}
+                      </span>
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${expense.isActive ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400'}`}>
+                        {expense.isActive ? 'Activo' : 'Inactivo'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <button onClick={() => startEditing(expense)} className="btn-icon" title="Editar">
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(expense.id!)}
+                      disabled={deletingId === expense.id}
+                      className="btn-icon !text-red-400 hover:!text-red-600 hover:!bg-red-50 dark:hover:!bg-red-900/30"
+                      title="Eliminar"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+                <div className="flex justify-between items-end pt-2 border-t border-slate-100 dark:border-slate-700">
+                  <div>
+                    <p className="text-xs text-slate-400">Vencimiento</p>
+                    <p className="text-sm text-slate-700 dark:text-slate-200">{expense.dueDate || '-'}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-slate-400">Monto</p>
+                    <p className="font-semibold text-red-600">{formatCurrency(expense.amount)}</p>
+                  </div>
+                </div>
+                {expense.notes && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 pt-2 border-t border-slate-100 dark:border-slate-700 break-words">{expense.notes}</p>
+                )}
+              </div>
+            );
+          })
+        )}
+        {sortedExpenses.length > 0 && (
+          <div className="card !p-4 bg-slate-50 dark:bg-slate-800/80">
+            <div className="flex justify-between items-center">
+              <span className="font-semibold text-slate-900 dark:text-slate-100">Total (activos)</span>
+              <span className="font-bold text-red-600">{formatCurrency(totalActive)}</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Desktop table view */}
+      <div className="hidden md:block card !p-0 overflow-x-auto">
+        <table className="w-full min-w-[900px]">
           <thead>
             <tr className="table-header">
               <th className="px-6 py-3 cursor-pointer select-none" onClick={() => toggleSort('name')}>
@@ -217,13 +296,13 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
               <th className="px-6 py-3 text-center">Acciones</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
             {sortedExpenses.map(expense => {
               const isEditing = editingId === expense.id;
 
               if (isEditing) {
                 return (
-                  <tr key={expense.id} className="bg-blue-50">
+                  <tr key={expense.id} className="bg-blue-50 dark:bg-blue-900/20">
                     <td colSpan={7} className="px-6 py-4">
                       <FormFields form={form} setForm={setForm} />
                       <div className="flex gap-2 mt-3">
@@ -239,21 +318,21 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
               }
 
               return (
-                <tr key={expense.id} className={`hover:bg-slate-50 transition-colors ${!expense.isActive ? 'opacity-50' : ''}`}>
-                  <td className="px-6 py-3 font-medium text-slate-900">{expense.name}</td>
+                <tr key={expense.id} className={`hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors ${!expense.isActive ? 'opacity-50' : ''}`}>
+                  <td className="px-6 py-3 font-medium text-slate-900 dark:text-slate-100">{expense.name}</td>
                   <td className="px-6 py-3">
                     <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[expense.category]}`}>
                       {EXPENSE_CATEGORIES[expense.category]}
                     </span>
                   </td>
-                  <td className="px-6 py-3 text-slate-600 text-sm">{expense.dueDate}</td>
+                  <td className="px-6 py-3 text-slate-600 dark:text-slate-300 text-sm">{expense.dueDate}</td>
                   <td className="px-6 py-3 text-right font-medium text-red-600">{formatCurrency(expense.amount)}</td>
                   <td className="px-6 py-3 text-center">
-                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${expense.isActive ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${expense.isActive ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400'}`}>
                       {expense.isActive ? 'Activo' : 'Inactivo'}
                     </span>
                   </td>
-                  <td className="px-6 py-3 text-slate-500 text-sm">{expense.notes || '-'}</td>
+                  <td className="px-6 py-3 text-slate-500 dark:text-slate-400 text-sm">{expense.notes || '-'}</td>
                   <td className="px-6 py-3 text-center">
                     <div className="flex gap-1 justify-center">
                       <button onClick={() => startEditing(expense)} className="btn-icon" title="Editar">
@@ -262,7 +341,7 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
                       <button
                         onClick={() => handleDelete(expense.id!)}
                         disabled={deletingId === expense.id}
-                        className="btn-icon !text-red-400 hover:!text-red-600 hover:!bg-red-50"
+                        className="btn-icon !text-red-400 hover:!text-red-600 hover:!bg-red-50 dark:hover:!bg-red-900/30"
                         title="Eliminar"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -281,7 +360,7 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
             )}
           </tbody>
           <tfoot>
-            <tr className="bg-slate-50 font-semibold">
+            <tr className="bg-slate-50 dark:bg-slate-800 font-semibold text-slate-900 dark:text-slate-100">
               <td className="px-6 py-3" colSpan={3}>Total (activos)</td>
               <td className="px-6 py-3 text-right text-red-600">{formatCurrency(totalActive)}</td>
               <td colSpan={3}></td>
@@ -300,7 +379,7 @@ function FormFields({ form, setForm }: {
   return (
     <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
       <div>
-        <label className="block text-xs font-medium text-slate-500 mb-1">Nombre</label>
+        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Nombre</label>
         <input
           type="text"
           className="input-field"
@@ -310,7 +389,7 @@ function FormFields({ form, setForm }: {
         />
       </div>
       <div>
-        <label className="block text-xs font-medium text-slate-500 mb-1">Monto ($)</label>
+        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Monto ($)</label>
         <input
           type="number"
           min="0"
@@ -321,7 +400,7 @@ function FormFields({ form, setForm }: {
         />
       </div>
       <div>
-        <label className="block text-xs font-medium text-slate-500 mb-1">Vencimiento</label>
+        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Vencimiento</label>
         <input
           type="text"
           className="input-field"
@@ -331,7 +410,7 @@ function FormFields({ form, setForm }: {
         />
       </div>
       <div>
-        <label className="block text-xs font-medium text-slate-500 mb-1">Categoria</label>
+        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Categoria</label>
         <select
           className="input-field"
           value={form.category}
@@ -343,7 +422,7 @@ function FormFields({ form, setForm }: {
         </select>
       </div>
       <div>
-        <label className="block text-xs font-medium text-slate-500 mb-1">Estado</label>
+        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Estado</label>
         <select
           className="input-field"
           value={form.isActive ? 'active' : 'inactive'}
@@ -354,7 +433,7 @@ function FormFields({ form, setForm }: {
         </select>
       </div>
       <div>
-        <label className="block text-xs font-medium text-slate-500 mb-1">Notas</label>
+        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Notas</label>
         <input
           type="text"
           className="input-field"

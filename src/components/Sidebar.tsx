@@ -1,11 +1,12 @@
-import { LayoutDashboard, ShoppingCart, Receipt, Settings, LogOut, DollarSign, Moon, Sun, Menu, X, Wallet } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, Receipt, Settings, LogOut, DollarSign, Moon, Sun, X, Wallet } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { useState } from 'react';
 
 interface SidebarProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }
 
 const NAV_ITEMS = [
@@ -17,14 +18,13 @@ const NAV_ITEMS = [
   { id: 'settings', label: 'Configuracion', icon: Settings },
 ];
 
-export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
+export default function Sidebar({ activeTab, onTabChange, open, onOpenChange }: SidebarProps) {
   const { user, logout } = useAuth();
   const { dark, toggle } = useTheme();
-  const [open, setOpen] = useState(false);
 
   function handleNav(id: string) {
     onTabChange(id);
-    setOpen(false);
+    onOpenChange(false);
   }
 
   const sidebarContent = (
@@ -83,22 +83,14 @@ export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
 
   return (
     <>
-      {/* Mobile hamburger */}
-      <button
-        onClick={() => setOpen(true)}
-        className="lg:hidden fixed top-4 left-4 z-30 p-2 rounded-lg bg-white dark:bg-slate-800 shadow-md border border-slate-200 dark:border-slate-700"
-      >
-        <Menu className="w-5 h-5 text-slate-700 dark:text-slate-200" />
-      </button>
-
       {/* Mobile overlay */}
       {open && (
-        <div className="lg:hidden fixed inset-0 z-40 bg-black/50" onClick={() => setOpen(false)}>
+        <div className="lg:hidden fixed inset-0 z-40 bg-black/50" onClick={() => onOpenChange(false)}>
           <aside
-            className="w-64 bg-white dark:bg-slate-800 flex flex-col h-full shadow-xl"
+            className="relative w-64 max-w-[85vw] bg-white dark:bg-slate-800 flex flex-col h-full shadow-xl"
             onClick={e => e.stopPropagation()}
           >
-            <button onClick={() => setOpen(false)} className="absolute top-4 right-4 p-1 text-slate-400 hover:text-slate-600">
+            <button onClick={() => onOpenChange(false)} className="absolute top-4 right-4 p-1 text-slate-400 hover:text-slate-600 z-10">
               <X className="w-5 h-5" />
             </button>
             {sidebarContent}

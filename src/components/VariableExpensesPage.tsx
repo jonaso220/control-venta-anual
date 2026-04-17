@@ -115,12 +115,12 @@ export default function VariableExpensesPage({ expenses, year, onSave, onDelete 
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Gastos Variables</h2>
           <p className="text-slate-500 dark:text-slate-400">Gastos puntuales y extraordinarios - {year}</p>
         </div>
-        <div className="flex gap-4 items-center">
+        <div className="flex gap-3 items-center flex-wrap">
           <div className="stat-card !p-3 !flex-row !items-center !gap-3">
             <Wallet className="w-4 h-4 text-orange-500" />
             <div>
@@ -136,8 +136,8 @@ export default function VariableExpensesPage({ expenses, year, onSave, onDelete 
       </div>
 
       {/* Filters */}
-      <div className="flex gap-3 flex-wrap">
-        <div className="relative flex-1 max-w-xs">
+      <div className="flex gap-2 sm:gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-[200px] sm:max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             type="text"
@@ -148,7 +148,7 @@ export default function VariableExpensesPage({ expenses, year, onSave, onDelete 
           />
         </div>
         <select
-          className="input-field !w-auto"
+          className="input-field w-full sm:!w-auto sm:flex-none"
           value={filterMonth ?? ''}
           onChange={e => setFilterMonth(e.target.value ? Number(e.target.value) : null)}
         >
@@ -173,8 +173,78 @@ export default function VariableExpensesPage({ expenses, year, onSave, onDelete 
         </div>
       )}
 
-      <div className="card overflow-hidden !p-0">
-        <table className="w-full">
+      {/* Mobile card view */}
+      <div className="md:hidden space-y-3">
+        {filtered.length === 0 ? (
+          <div className="card text-center text-slate-400 py-8">
+            No hay gastos variables registrados.
+          </div>
+        ) : (
+          filtered.map(exp => {
+            const isEditing = editingId === exp.id;
+            if (isEditing) {
+              return (
+                <div key={exp.id} className="card !p-4 border-blue-300 dark:border-blue-700 bg-blue-50/30 dark:bg-blue-900/10">
+                  <FormFields form={form} setForm={setForm} />
+                  <div className="flex gap-2 mt-4">
+                    <button onClick={handleSave} disabled={saving || !form.description.trim()} className="btn-primary flex-1 flex items-center justify-center gap-2 !py-2">
+                      <Save className="w-4 h-4" />
+                      {saving ? 'Guardando...' : 'Guardar'}
+                    </button>
+                    <button onClick={cancel} className="btn-secondary !py-2">Cancelar</button>
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <div key={exp.id} className="card !p-4">
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <div className="min-w-0 flex-1">
+                    <h4 className="font-semibold text-slate-900 dark:text-slate-100 break-words">{exp.description}</h4>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <span className="text-xs text-slate-500 dark:text-slate-400">{formatDate(exp.date)}</span>
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${categoryColors[exp.category]}`}>
+                        {EXPENSE_CATEGORIES[exp.category]}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <button onClick={() => startEditing(exp)} className="btn-icon" title="Editar">
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(exp.id!)}
+                      disabled={deletingId === exp.id}
+                      className="btn-icon !text-red-400 hover:!text-red-600 hover:!bg-red-50 dark:hover:!bg-red-900/30"
+                      title="Eliminar"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+                <div className="flex justify-between items-end pt-2 border-t border-slate-100 dark:border-slate-700">
+                  {exp.notes ? (
+                    <p className="text-xs text-slate-500 dark:text-slate-400 flex-1 pr-3 break-words">{exp.notes}</p>
+                  ) : <span />}
+                  <p className="font-semibold text-orange-600 shrink-0">{formatCurrency(exp.amount)}</p>
+                </div>
+              </div>
+            );
+          })
+        )}
+        {filtered.length > 0 && (
+          <div className="card !p-4 bg-slate-50 dark:bg-slate-800/80">
+            <div className="flex justify-between items-center">
+              <span className="font-semibold text-slate-900 dark:text-slate-100">Total {filterMonth ? `(${MONTHS[filterMonth - 1]})` : '(filtrado)'}</span>
+              <span className="font-bold text-orange-600">{formatCurrency(totalFiltered)}</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Desktop table view */}
+      <div className="hidden md:block card !p-0 overflow-x-auto">
+        <table className="w-full min-w-[780px]">
           <thead>
             <tr className="table-header">
               <th className="px-6 py-3">Fecha</th>
@@ -265,7 +335,7 @@ function FormFields({ form, setForm }: {
   return (
     <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
       <div>
-        <label className="block text-xs font-medium text-slate-500 mb-1">Fecha</label>
+        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Fecha</label>
         <input
           type="date"
           className="input-field"
@@ -274,7 +344,7 @@ function FormFields({ form, setForm }: {
         />
       </div>
       <div>
-        <label className="block text-xs font-medium text-slate-500 mb-1">Descripcion</label>
+        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Descripcion</label>
         <input
           type="text"
           className="input-field"
@@ -284,7 +354,7 @@ function FormFields({ form, setForm }: {
         />
       </div>
       <div>
-        <label className="block text-xs font-medium text-slate-500 mb-1">Monto ($)</label>
+        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Monto ($)</label>
         <input
           type="number"
           min="0"
@@ -296,7 +366,7 @@ function FormFields({ form, setForm }: {
         />
       </div>
       <div>
-        <label className="block text-xs font-medium text-slate-500 mb-1">Categoria</label>
+        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Categoria</label>
         <select
           className="input-field"
           value={form.category}
@@ -308,7 +378,7 @@ function FormFields({ form, setForm }: {
         </select>
       </div>
       <div>
-        <label className="block text-xs font-medium text-slate-500 mb-1">Notas</label>
+        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Notas</label>
         <input
           type="text"
           className="input-field"

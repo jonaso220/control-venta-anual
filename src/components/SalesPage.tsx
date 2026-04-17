@@ -67,44 +67,137 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">Ventas</h2>
-          <p className="text-slate-500">Registro mensual de ventas - {year}</p>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Ventas</h2>
+          <p className="text-slate-500 dark:text-slate-400">Registro mensual de ventas - {year}</p>
         </div>
-        <div className="flex gap-4 text-sm">
+        <div className="flex gap-3 text-sm flex-wrap">
           <div className="stat-card !p-3 !flex-row !items-center !gap-3">
             <ShoppingCart className="w-4 h-4 text-blue-500" />
             <div>
               <p className="text-xs text-slate-400">Total Unidades</p>
-              <p className="font-bold text-slate-900">{totalUnits.toLocaleString()}</p>
+              <p className="font-bold text-slate-900 dark:text-slate-100">{totalUnits.toLocaleString()}</p>
             </div>
           </div>
           <div className="stat-card !p-3 !flex-row !items-center !gap-3">
             <span className="text-green-500 font-bold text-lg">$</span>
             <div>
               <p className="text-xs text-slate-400">Ingresos</p>
-              <p className="font-bold text-slate-900">{formatCurrency(totalIncome)}</p>
+              <p className="font-bold text-slate-900 dark:text-slate-100">{formatCurrency(totalIncome)}</p>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="card overflow-hidden !p-0">
-        <table className="w-full">
+      {/* Mobile card view */}
+      <div className="md:hidden space-y-3">
+        {Array.from({ length: 12 }, (_, i) => i + 1).map(month => {
+          const entry = salesMap.get(month);
+          const isEditing = editingMonth === month;
+          const totalU = (entry?.sifones ?? 0) + (entry?.litros6 ?? 0) + (entry?.litros12 ?? 0) + (entry?.litros20 ?? 0);
+          const income = calcIncome(entry);
+
+          return (
+            <div key={month} className={`card !p-4 ${isEditing ? 'border-blue-300 dark:border-blue-700' : ''}`}>
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-semibold text-slate-900 dark:text-slate-100">{MONTHS[month - 1]}</h4>
+                {!isEditing && (
+                  <button onClick={() => startEditing(month)} className="btn-secondary !py-1.5 !px-3 text-xs">
+                    Editar
+                  </button>
+                )}
+              </div>
+              {isEditing ? (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Sifones</label>
+                      <input type="number" min="0" className="input-field !py-2" value={form.sifones} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, sifones: Number(e.target.value) || 0 }))} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">6 Litros</label>
+                      <input type="number" min="0" className="input-field !py-2" value={form.litros6} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros6: Number(e.target.value) || 0 }))} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">12 Litros</label>
+                      <input type="number" min="0" className="input-field !py-2" value={form.litros12} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros12: Number(e.target.value) || 0 }))} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">20 Litros</label>
+                      <input type="number" min="0" className="input-field !py-2" value={form.litros20} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros20: Number(e.target.value) || 0 }))} />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={handleSave} disabled={saving} className="btn-primary flex-1 flex items-center justify-center gap-2 !py-2">
+                      <Save className="w-4 h-4" />
+                      {saving ? 'Guardando...' : 'Guardar'}
+                    </button>
+                    <button onClick={() => setEditingMonth(null)} className="btn-secondary !py-2">
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-xs text-slate-400">Sifones</p>
+                    <p className="font-medium text-slate-700 dark:text-slate-200">{entry?.sifones ?? 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400">6 Litros</p>
+                    <p className="font-medium text-slate-700 dark:text-slate-200">{entry?.litros6 ?? 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400">12 Litros</p>
+                    <p className="font-medium text-slate-700 dark:text-slate-200">{entry?.litros12 ?? 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400">20 Litros</p>
+                    <p className="font-medium text-slate-700 dark:text-slate-200">{entry?.litros20 ?? 0}</p>
+                  </div>
+                  <div className="col-span-2 pt-2 border-t border-slate-100 dark:border-slate-700 flex justify-between">
+                    <div>
+                      <p className="text-xs text-slate-400">Total unidades</p>
+                      <p className="font-semibold text-slate-900 dark:text-slate-100">{totalU}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-slate-400">Ingreso</p>
+                      <p className="font-semibold text-green-600">{formatCurrency(income)}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+        <div className="card !p-4 bg-slate-50 dark:bg-slate-800/80">
+          <div className="flex justify-between items-center">
+            <span className="font-semibold text-slate-900 dark:text-slate-100">Total del año</span>
+            <div className="text-right">
+              <p className="text-sm text-slate-500 dark:text-slate-400">{totalUnits} unidades</p>
+              <p className="font-bold text-green-600">{formatCurrency(totalIncome)}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Desktop table view */}
+      <div className="hidden md:block card !p-0 overflow-x-auto">
+        <table className="w-full min-w-[820px]">
           <thead>
             <tr className="table-header">
-              <th className="px-6 py-3">Mes</th>
-              <th className="px-6 py-3 text-right">Sifones</th>
-              <th className="px-6 py-3 text-right">6 Litros</th>
-              <th className="px-6 py-3 text-right">12 Litros</th>
-              <th className="px-6 py-3 text-right">20 Litros</th>
-              <th className="px-6 py-3 text-right">Total Unid.</th>
-              <th className="px-6 py-3 text-right">Ingreso</th>
-              <th className="px-6 py-3 text-center">Acciones</th>
+              <th className="px-4 sm:px-6 py-3">Mes</th>
+              <th className="px-4 sm:px-6 py-3 text-right">Sifones</th>
+              <th className="px-4 sm:px-6 py-3 text-right">6 Litros</th>
+              <th className="px-4 sm:px-6 py-3 text-right">12 Litros</th>
+              <th className="px-4 sm:px-6 py-3 text-right">20 Litros</th>
+              <th className="px-4 sm:px-6 py-3 text-right">Total Unid.</th>
+              <th className="px-4 sm:px-6 py-3 text-right">Ingreso</th>
+              <th className="px-4 sm:px-6 py-3 text-center">Acciones</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
             {Array.from({ length: 12 }, (_, i) => i + 1).map(month => {
               const entry = salesMap.get(month);
               const isEditing = editingMonth === month;
@@ -112,25 +205,25 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
               const income = calcIncome(entry);
 
               return (
-                <tr key={month} className={`${isEditing ? 'bg-blue-50' : 'hover:bg-slate-50'} transition-colors`}>
-                  <td className="px-6 py-3 font-medium text-slate-900">{MONTHS[month - 1]}</td>
+                <tr key={month} className={`${isEditing ? 'bg-blue-50 dark:bg-blue-900/20' : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'} transition-colors`}>
+                  <td className="px-4 sm:px-6 py-3 font-medium text-slate-900 dark:text-slate-100">{MONTHS[month - 1]}</td>
                   {isEditing ? (
                     <>
-                      <td className="px-6 py-2">
+                      <td className="px-4 sm:px-6 py-2">
                         <input type="number" min="0" className="input-field text-right !py-1.5" value={form.sifones} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, sifones: Number(e.target.value) || 0 }))} />
                       </td>
-                      <td className="px-6 py-2">
+                      <td className="px-4 sm:px-6 py-2">
                         <input type="number" min="0" className="input-field text-right !py-1.5" value={form.litros6} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros6: Number(e.target.value) || 0 }))} />
                       </td>
-                      <td className="px-6 py-2">
+                      <td className="px-4 sm:px-6 py-2">
                         <input type="number" min="0" className="input-field text-right !py-1.5" value={form.litros12} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros12: Number(e.target.value) || 0 }))} />
                       </td>
-                      <td className="px-6 py-2">
+                      <td className="px-4 sm:px-6 py-2">
                         <input type="number" min="0" className="input-field text-right !py-1.5" value={form.litros20} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros20: Number(e.target.value) || 0 }))} />
                       </td>
-                      <td className="px-6 py-3 text-right text-slate-400">-</td>
-                      <td className="px-6 py-3 text-right text-slate-400">-</td>
-                      <td className="px-6 py-3 text-center">
+                      <td className="px-4 sm:px-6 py-3 text-right text-slate-400">-</td>
+                      <td className="px-4 sm:px-6 py-3 text-right text-slate-400">-</td>
+                      <td className="px-4 sm:px-6 py-3 text-center">
                         <div className="flex gap-1 justify-center">
                           <button onClick={handleSave} disabled={saving} className="btn-primary !py-1.5 !px-3 text-xs flex items-center gap-1">
                             <Save className="w-3 h-3" />
@@ -144,13 +237,13 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
                     </>
                   ) : (
                     <>
-                      <td className="px-6 py-3 text-right text-slate-600">{entry?.sifones ?? 0}</td>
-                      <td className="px-6 py-3 text-right text-slate-600">{entry?.litros6 ?? 0}</td>
-                      <td className="px-6 py-3 text-right text-slate-600">{entry?.litros12 ?? 0}</td>
-                      <td className="px-6 py-3 text-right text-slate-600">{entry?.litros20 ?? 0}</td>
-                      <td className="px-6 py-3 text-right font-medium text-slate-900">{totalU}</td>
-                      <td className="px-6 py-3 text-right font-medium text-green-600">{formatCurrency(income)}</td>
-                      <td className="px-6 py-3 text-center">
+                      <td className="px-4 sm:px-6 py-3 text-right text-slate-600 dark:text-slate-300">{entry?.sifones ?? 0}</td>
+                      <td className="px-4 sm:px-6 py-3 text-right text-slate-600 dark:text-slate-300">{entry?.litros6 ?? 0}</td>
+                      <td className="px-4 sm:px-6 py-3 text-right text-slate-600 dark:text-slate-300">{entry?.litros12 ?? 0}</td>
+                      <td className="px-4 sm:px-6 py-3 text-right text-slate-600 dark:text-slate-300">{entry?.litros20 ?? 0}</td>
+                      <td className="px-4 sm:px-6 py-3 text-right font-medium text-slate-900 dark:text-slate-100">{totalU}</td>
+                      <td className="px-4 sm:px-6 py-3 text-right font-medium text-green-600">{formatCurrency(income)}</td>
+                      <td className="px-4 sm:px-6 py-3 text-center">
                         <button onClick={() => startEditing(month)} className="btn-secondary !py-1.5 !px-3 text-xs">
                           Editar
                         </button>
@@ -162,14 +255,14 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
             })}
           </tbody>
           <tfoot>
-            <tr className="bg-slate-50 font-semibold">
-              <td className="px-6 py-3">Total</td>
-              <td className="px-6 py-3 text-right">{sales.reduce((a, s) => a + s.sifones, 0)}</td>
-              <td className="px-6 py-3 text-right">{sales.reduce((a, s) => a + s.litros6, 0)}</td>
-              <td className="px-6 py-3 text-right">{sales.reduce((a, s) => a + s.litros12, 0)}</td>
-              <td className="px-6 py-3 text-right">{sales.reduce((a, s) => a + s.litros20, 0)}</td>
-              <td className="px-6 py-3 text-right">{totalUnits}</td>
-              <td className="px-6 py-3 text-right text-green-600">{formatCurrency(totalIncome)}</td>
+            <tr className="bg-slate-50 dark:bg-slate-800 font-semibold text-slate-900 dark:text-slate-100">
+              <td className="px-4 sm:px-6 py-3">Total</td>
+              <td className="px-4 sm:px-6 py-3 text-right">{sales.reduce((a, s) => a + s.sifones, 0)}</td>
+              <td className="px-4 sm:px-6 py-3 text-right">{sales.reduce((a, s) => a + s.litros6, 0)}</td>
+              <td className="px-4 sm:px-6 py-3 text-right">{sales.reduce((a, s) => a + s.litros12, 0)}</td>
+              <td className="px-4 sm:px-6 py-3 text-right">{sales.reduce((a, s) => a + s.litros20, 0)}</td>
+              <td className="px-4 sm:px-6 py-3 text-right">{totalUnits}</td>
+              <td className="px-4 sm:px-6 py-3 text-right text-green-600">{formatCurrency(totalIncome)}</td>
               <td></td>
             </tr>
           </tfoot>

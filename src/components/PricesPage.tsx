@@ -54,7 +54,7 @@ export default function PricesPage({ prices, onSave, year, history }: PricesPage
         <p className="text-slate-500 dark:text-slate-400">Configura el margen de ganancia por producto - {year}</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 max-w-2xl">
         <PriceCard label="Sifones" description="Ganancia por sifon" value={form.sifones} onChange={v => setForm(f => ({ ...f, sifones: v }))} color="indigo" />
         <PriceCard label="6 Litros" description="Ganancia por bidon de 6L" value={form.litros6} onChange={v => setForm(f => ({ ...f, litros6: v }))} color="sky" />
         <PriceCard label="12 Litros" description="Ganancia por bidon de 12L" value={form.litros12} onChange={v => setForm(f => ({ ...f, litros12: v }))} color="amber" />
@@ -92,7 +92,7 @@ export default function PricesPage({ prices, onSave, year, history }: PricesPage
                     <p className="text-xs text-slate-400 mb-1">
                       {date.toLocaleDateString('es-UY')} {date.toLocaleTimeString('es-UY', { hour: '2-digit', minute: '2-digit' })}
                     </p>
-                    <div className="grid grid-cols-4 gap-2 text-xs">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-slate-700 dark:text-slate-300">
                       <span>Sifones: {formatCurrency(entry.sifones)}</span>
                       <span>6L: {formatCurrency(entry.litros6)}</span>
                       <span>12L: {formatCurrency(entry.litros12)}</span>

@@ -12,7 +12,7 @@ import PricesPage from './components/PricesPage';
 import VariableExpensesPage from './components/VariableExpensesPage';
 import SettingsPage from './components/SettingsPage';
 import YearSelector from './components/YearSelector';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Menu } from 'lucide-react';
 import type { SalesEntry, Expense, PriceConfig, VariableExpense, SalesGoal } from './types';
 import { DEFAULT_PRICES } from './types';
 import {
@@ -30,13 +30,13 @@ import {
   getPriceHistory,
   getGoals,
   saveGoal,
-  initializeDefaults,
 } from './services/firestore';
 
 function AppContent() {
   const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [year, setYear] = useState(new Date().getFullYear());
   const [sales, setSales] = useState<SalesEntry[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -189,23 +189,9 @@ function AppContent() {
     }
   };
 
-  const handleInitDefaults = async () => {
-    if (!user) return;
-    try {
-      await initializeDefaults(user.uid);
-      const updated = await getExpenses(user.uid);
-      setExpenses(updated);
-      toast('Datos inicializados correctamente');
-    } catch (err) {
-      console.error('Error initializing defaults:', err);
-      toast('Error al inicializar datos.', 'error');
-      throw err;
-    }
-  };
-
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
         <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
       </div>
     );
@@ -216,13 +202,22 @@ function AppContent() {
   }
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
-      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
-      <main className="flex-1 overflow-auto">
-        <header className="bg-white border-b border-slate-200 px-4 lg:px-8 py-4 flex items-center justify-end sticky top-0 z-10 dark:bg-slate-800 dark:border-slate-700">
-          <YearSelector year={year} onChange={setYear} />
+    <div className="flex min-h-screen bg-slate-50 dark:bg-slate-900">
+      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} open={sidebarOpen} onOpenChange={setSidebarOpen} />
+      <main className="flex-1 min-w-0 overflow-auto">
+        <header className="bg-white border-b border-slate-200 px-3 sm:px-4 lg:px-8 py-3 lg:py-4 flex items-center gap-3 sticky top-0 z-10 dark:bg-slate-800 dark:border-slate-700">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="lg:hidden p-2 -ml-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+            aria-label="Abrir menu"
+          >
+            <Menu className="w-5 h-5 text-slate-700 dark:text-slate-200" />
+          </button>
+          <div className="ml-auto">
+            <YearSelector year={year} onChange={setYear} />
+          </div>
         </header>
-        <div className="p-4 lg:p-8">
+        <div className="p-3 sm:p-4 lg:p-8">
           {loading ? (
             <div className="flex items-center justify-center py-20">
               <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
@@ -246,7 +241,6 @@ function AppContent() {
               )}
               {activeTab === 'settings' && (
                 <SettingsPage
-                  onInitDefaults={handleInitDefaults}
                   onBackupExcel={() => exportFullBackup(sales, expenses, variableExpenses, prices, year)}
                   onBackupJSON={() => exportFullBackupJSON(sales, expenses, variableExpenses, prices, year)}
                 />
