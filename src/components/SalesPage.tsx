@@ -1,26 +1,41 @@
 import { useState, useMemo } from 'react';
-import { CircleAlert, Save, ShoppingCart, Target } from 'lucide-react';
-import type { SalesEntry, PriceConfig, SalesGoal } from '../types';
+import { CircleAlert, Save, Target, TrendingDown, TrendingUp } from 'lucide-react';
+import type { Expense, SalesEntry, PriceConfig, SalesGoal, VariableExpense } from '../types';
 import { MONTHS } from '../types';
 import { formatCurrency } from '../utils/format';
 import {
-  calculateSalesMargin,
+  buildMonthlyFinancialResults,
   freezeSalesMargins,
+  getElapsedMonthCount,
   getGoalTargetMargin,
   hasConfiguredMargins,
   isValidProductAmounts,
+  sumFinancialResults,
 } from '../domain/finance';
 
 interface SalesPageProps {
   sales: SalesEntry[];
   prices: PriceConfig;
+  expenses: Expense[];
+  variableExpenses: VariableExpense[];
   year: number;
   onSave: (entry: SalesEntry) => Promise<void>;
+  onOpenMargins: () => void;
   goals: SalesGoal[];
   onSaveGoal: (goal: Omit<SalesGoal, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
 }
 
-export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGoal }: SalesPageProps) {
+export default function SalesPage({
+  sales,
+  prices,
+  expenses,
+  variableExpenses,
+  year,
+  onSave,
+  onOpenMargins,
+  goals,
+  onSaveGoal,
+}: SalesPageProps) {
   const [editingMonth, setEditingMonth] = useState<number | null>(null);
   const [form, setForm] = useState({ sifones: 0, litros6: 0, litros12: 0, litros20: 0 });
   const [saving, setSaving] = useState(false);
@@ -30,6 +45,23 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
     sales.forEach(s => map.set(s.month, s));
     return map;
   }, [sales]);
+
+  const financialMonths = useMemo(() => buildMonthlyFinancialResults({
+    sales,
+    margins: prices,
+    fixedExpenses: expenses,
+    variableExpenses,
+    year,
+  }), [sales, prices, expenses, variableExpenses, year]);
+
+  const elapsedMonths = getElapsedMonthCount(year);
+  const accumulatedTotals = useMemo(
+    () => sumFinancialResults(financialMonths.slice(0, elapsedMonths)),
+    [elapsedMonths, financialMonths],
+  );
+  const marginsConfigured = hasConfiguredMargins(prices);
+  const existingEditingEntry = editingMonth === null ? undefined : salesMap.get(editingMonth);
+  const canSaveEditing = marginsConfigured || isValidProductAmounts(existingEditingEntry?.marginSnapshot);
 
   function startEditing(month: number) {
     const existing = salesMap.get(month);
@@ -44,9 +76,11 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
 
   async function handleSave() {
     if (editingMonth === null) return;
+    const existing = salesMap.get(editingMonth);
+    if (!marginsConfigured && !isValidProductAmounts(existing?.marginSnapshot)) return;
+
     setSaving(true);
     try {
-      const existing = salesMap.get(editingMonth);
       await onSave(freezeSalesMargins({
         year,
         month: editingMonth,
@@ -61,13 +95,8 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
     }
   }
 
-  function calcMargin(entry: SalesEntry | undefined) {
-    return calculateSalesMargin(entry, prices);
-  }
-
-  const totalUnits = sales.reduce((a, s) => a + s.sifones + s.litros6 + s.litros12 + s.litros20, 0);
-  const totalMargin = sales.reduce((a, s) => a + calcMargin(s), 0);
-  const marginsConfigured = hasConfiguredMargins(prices);
+  const totalGrossProfit = accumulatedTotals.grossMargin;
+  const totalNetProfit = accumulatedTotals.netResult;
 
   return (
     <div className="space-y-6">
@@ -78,29 +107,40 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
         </div>
         <div className="flex gap-3 text-sm flex-wrap">
           <div className="stat-card !p-3 !flex-row !items-center !gap-3">
-            <ShoppingCart className="w-4 h-4 text-blue-500" />
+            <TrendingUp className="w-4 h-4 text-blue-500" />
             <div>
-              <p className="text-xs text-slate-400">Total Unidades</p>
-              <p className="font-bold text-slate-900 dark:text-slate-100">{totalUnits.toLocaleString()}</p>
+              <p className="text-xs text-slate-400">Ganancia total</p>
+              <p className="font-bold text-slate-900 dark:text-slate-100">{formatCurrency(totalGrossProfit)}</p>
+              <p className="text-[10px] text-slate-400">Antes de gastos</p>
             </div>
           </div>
           <div className="stat-card !p-3 !flex-row !items-center !gap-3">
-            <span className="text-green-500 font-bold text-lg">$</span>
+            {totalNetProfit >= 0 ? (
+              <TrendingUp className="w-4 h-4 text-green-500" />
+            ) : (
+              <TrendingDown className="w-4 h-4 text-red-500" />
+            )}
             <div>
-              <p className="text-xs text-slate-400">Margen bruto</p>
-              <p className="font-bold text-slate-900 dark:text-slate-100">{formatCurrency(totalMargin)}</p>
+              <p className="text-xs text-slate-400">Ganancia neta</p>
+              <p className={`font-bold ${totalNetProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(totalNetProfit)}</p>
+              <p className="text-[10px] text-slate-400">Después de gastos</p>
             </div>
           </div>
         </div>
       </div>
 
       {!marginsConfigured && (
-        <div role="alert" className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-100">
-          <CircleAlert className="mt-0.5 h-5 w-5 shrink-0" />
-          <div>
-            <p className="font-semibold">Configura los márgenes antes de registrar ventas.</p>
-            <p className="mt-1">Así cada mes conserva el margen aplicado y los cambios futuros no alteran sus resultados históricos.</p>
+        <div role="alert" className="flex flex-col gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-100 sm:flex-row sm:items-start">
+          <div className="flex items-start gap-3 sm:flex-1">
+            <CircleAlert className="mt-0.5 h-5 w-5 shrink-0" />
+            <div>
+              <p className="font-semibold">Configura los márgenes antes de registrar ventas.</p>
+              <p className="mt-1">Así cada mes conserva el margen aplicado y los cambios futuros no alteran sus resultados históricos.</p>
+            </div>
           </div>
+          <button onClick={onOpenMargins} className="btn-secondary self-start !border-amber-300 !bg-white/80 !py-2 !px-3 text-xs dark:!border-amber-700 dark:!bg-slate-900/40">
+            Ir a Márgenes
+          </button>
         </div>
       )}
 
@@ -109,8 +149,10 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
         {Array.from({ length: 12 }, (_, i) => i + 1).map(month => {
           const entry = salesMap.get(month);
           const isEditing = editingMonth === month;
-          const totalU = (entry?.sifones ?? 0) + (entry?.litros6 ?? 0) + (entry?.litros12 ?? 0) + (entry?.litros20 ?? 0);
-          const margin = calcMargin(entry);
+          const financial = financialMonths[month - 1];
+          const isElapsedMonth = month <= elapsedMonths;
+          const grossProfit = financial?.grossMargin ?? 0;
+          const netProfit = financial?.netResult ?? 0;
 
           return (
             <div key={month} className={`card !p-4 ${isEditing ? 'border-blue-300 dark:border-blue-700' : ''}`}>
@@ -119,7 +161,6 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
                 {!isEditing && (
                   <button
                     onClick={() => startEditing(month)}
-                    disabled={!marginsConfigured && !isValidProductAmounts(entry?.marginSnapshot)}
                     className="btn-secondary !py-1.5 !px-3 text-xs"
                   >
                     Editar
@@ -146,8 +187,13 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
                       <input type="number" min="0" className="input-field !py-2" value={form.litros20} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros20: Number(e.target.value) || 0 }))} />
                     </div>
                   </div>
+                  {!canSaveEditing && (
+                    <p role="status" className="text-xs text-amber-700 dark:text-amber-300">
+                      Configura los márgenes para poder guardar estos cambios.
+                    </p>
+                  )}
                   <div className="flex gap-2">
-                    <button onClick={handleSave} disabled={saving} className="btn-primary flex-1 flex items-center justify-center gap-2 !py-2">
+                    <button onClick={handleSave} disabled={saving || !canSaveEditing} className="btn-primary flex-1 flex items-center justify-center gap-2 !py-2">
                       <Save className="w-4 h-4" />
                       {saving ? 'Guardando...' : 'Guardar'}
                     </button>
@@ -176,12 +222,16 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
                   </div>
                   <div className="col-span-2 pt-2 border-t border-slate-100 dark:border-slate-700 flex justify-between">
                     <div>
-                      <p className="text-xs text-slate-400">Total unidades</p>
-                      <p className="font-semibold text-slate-900 dark:text-slate-100">{totalU}</p>
+                      <p className="text-xs text-slate-400">Ganancia total</p>
+                      <p className="font-semibold text-slate-900 dark:text-slate-100">{formatCurrency(grossProfit)}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-xs text-slate-400">Margen bruto</p>
-                      <p className="font-semibold text-green-600">{formatCurrency(margin)}</p>
+                      <p className="text-xs text-slate-400">Ganancia neta</p>
+                      {isElapsedMonth ? (
+                        <p className={`font-semibold ${netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(netProfit)}</p>
+                      ) : (
+                        <p className="font-semibold text-slate-400">—</p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -191,10 +241,10 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
         })}
         <div className="card !p-4 bg-slate-50 dark:bg-slate-800/80">
           <div className="flex justify-between items-center">
-            <span className="font-semibold text-slate-900 dark:text-slate-100">Total del año</span>
+            <span className="font-semibold text-slate-900 dark:text-slate-100">Acumulado del año</span>
             <div className="text-right">
-              <p className="text-sm text-slate-500 dark:text-slate-400">{totalUnits} unidades</p>
-              <p className="font-bold text-green-600">{formatCurrency(totalMargin)}</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Ganancia total: {formatCurrency(totalGrossProfit)}</p>
+              <p className={`font-bold ${totalNetProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>Neta: {formatCurrency(totalNetProfit)}</p>
             </div>
           </div>
         </div>
@@ -210,8 +260,8 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
               <th className="px-4 sm:px-6 py-3 text-right">6 Litros</th>
               <th className="px-4 sm:px-6 py-3 text-right">12 Litros</th>
               <th className="px-4 sm:px-6 py-3 text-right">20 Litros</th>
-              <th className="px-4 sm:px-6 py-3 text-right">Total Unid.</th>
-              <th className="px-4 sm:px-6 py-3 text-right">Margen bruto</th>
+              <th className="px-4 sm:px-6 py-3 text-right">Ganancia total</th>
+              <th className="px-4 sm:px-6 py-3 text-right">Ganancia neta</th>
               <th className="px-4 sm:px-6 py-3 text-center">Acciones</th>
             </tr>
           </thead>
@@ -219,8 +269,10 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
             {Array.from({ length: 12 }, (_, i) => i + 1).map(month => {
               const entry = salesMap.get(month);
               const isEditing = editingMonth === month;
-              const totalU = (entry?.sifones ?? 0) + (entry?.litros6 ?? 0) + (entry?.litros12 ?? 0) + (entry?.litros20 ?? 0);
-              const margin = calcMargin(entry);
+              const financial = financialMonths[month - 1];
+              const isElapsedMonth = month <= elapsedMonths;
+              const grossProfit = financial?.grossMargin ?? 0;
+              const netProfit = financial?.netResult ?? 0;
 
               return (
                 <tr key={month} className={`${isEditing ? 'bg-blue-50 dark:bg-blue-900/20' : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'} transition-colors`}>
@@ -243,7 +295,12 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
                       <td className="px-4 sm:px-6 py-3 text-right text-slate-400">-</td>
                       <td className="px-4 sm:px-6 py-3 text-center">
                         <div className="flex gap-1 justify-center">
-                          <button onClick={handleSave} disabled={saving} className="btn-primary !py-1.5 !px-3 text-xs flex items-center gap-1">
+                          <button
+                            onClick={handleSave}
+                            disabled={saving || !canSaveEditing}
+                            title={!canSaveEditing ? 'Configura los márgenes para guardar' : undefined}
+                            className="btn-primary !py-1.5 !px-3 text-xs flex items-center gap-1"
+                          >
                             <Save className="w-3 h-3" />
                             {saving ? 'Guardando...' : 'Guardar'}
                           </button>
@@ -259,12 +316,13 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
                       <td className="px-4 sm:px-6 py-3 text-right text-slate-600 dark:text-slate-300">{entry?.litros6 ?? 0}</td>
                       <td className="px-4 sm:px-6 py-3 text-right text-slate-600 dark:text-slate-300">{entry?.litros12 ?? 0}</td>
                       <td className="px-4 sm:px-6 py-3 text-right text-slate-600 dark:text-slate-300">{entry?.litros20 ?? 0}</td>
-                      <td className="px-4 sm:px-6 py-3 text-right font-medium text-slate-900 dark:text-slate-100">{totalU}</td>
-                      <td className="px-4 sm:px-6 py-3 text-right font-medium text-green-600">{formatCurrency(margin)}</td>
+                      <td className="px-4 sm:px-6 py-3 text-right font-medium text-slate-900 dark:text-slate-100">{formatCurrency(grossProfit)}</td>
+                      <td className={`px-4 sm:px-6 py-3 text-right font-medium ${netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {isElapsedMonth ? formatCurrency(netProfit) : '—'}
+                      </td>
                       <td className="px-4 sm:px-6 py-3 text-center">
                         <button
                           onClick={() => startEditing(month)}
-                          disabled={!marginsConfigured && !isValidProductAmounts(entry?.marginSnapshot)}
                           className="btn-secondary !py-1.5 !px-3 text-xs"
                         >
                           Editar
@@ -283,8 +341,8 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
               <td className="px-4 sm:px-6 py-3 text-right">{sales.reduce((a, s) => a + s.litros6, 0)}</td>
               <td className="px-4 sm:px-6 py-3 text-right">{sales.reduce((a, s) => a + s.litros12, 0)}</td>
               <td className="px-4 sm:px-6 py-3 text-right">{sales.reduce((a, s) => a + s.litros20, 0)}</td>
-              <td className="px-4 sm:px-6 py-3 text-right">{totalUnits}</td>
-              <td className="px-4 sm:px-6 py-3 text-right text-green-600">{formatCurrency(totalMargin)}</td>
+              <td className="px-4 sm:px-6 py-3 text-right">{formatCurrency(totalGrossProfit)}</td>
+              <td className={`px-4 sm:px-6 py-3 text-right ${totalNetProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(totalNetProfit)}</td>
               <td></td>
             </tr>
           </tfoot>
@@ -293,8 +351,7 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
 
       {/* Goals section */}
       <GoalsSection goals={goals} year={year} onSaveGoal={onSaveGoal} monthlyData={Array.from({ length: 12 }, (_, i) => {
-        const entry = salesMap.get(i + 1);
-        return { month: i + 1, margin: calcMargin(entry) };
+        return { month: i + 1, margin: financialMonths[i]?.grossMargin ?? 0 };
       })} />
     </div>
   );

@@ -308,7 +308,17 @@ function AppContent() {
                 <Dashboard sales={sales} prices={prices} expenses={expenses} variableExpenses={variableExpenses} year={year} goals={goals} />
               )}
               {activeTab === 'sales' && (
-                <SalesPage sales={sales} prices={prices} year={year} onSave={handleSaveSales} goals={goals} onSaveGoal={handleSaveGoal} />
+                <SalesPage
+                  sales={sales}
+                  prices={prices}
+                  expenses={expenses}
+                  variableExpenses={variableExpenses}
+                  year={year}
+                  onSave={handleSaveSales}
+                  onOpenMargins={() => setActiveTab('prices')}
+                  goals={goals}
+                  onSaveGoal={handleSaveGoal}
+                />
               )}
               {activeTab === 'expenses' && (
                 <ExpensesPage expenses={expenses} onSave={handleSaveExpense} onDelete={handleDeleteExpense} />
