@@ -1,21 +1,22 @@
-export interface SalesEntry {
-  id?: string;
-  year: number;
-  month: number; // 1-12
+export interface ProductAmounts {
   sifones: number;
   litros6: number;
   litros12: number;
   litros20: number;
+}
+
+export interface SalesEntry extends ProductAmounts {
+  id?: string;
+  year: number;
+  month: number; // 1-12
+  /** Margen unitario aplicado al guardar. Los registros antiguos pueden no tenerlo. */
+  marginSnapshot?: ProductAmounts;
   createdAt?: Date;
   updatedAt?: Date;
 }
 
-export interface PriceConfig {
+export interface PriceConfig extends ProductAmounts {
   id?: string;
-  sifones: number;
-  litros6: number;
-  litros12: number;
-  litros20: number;
   updatedAt?: Date;
 }
 
@@ -54,6 +55,8 @@ export interface SalesGoal {
   id?: string;
   year: number;
   month: number; // 1-12
+  targetMargin?: number;
+  /** @deprecated Campo legado; usar targetMargin para nuevas metas. */
   targetIncome?: number;
   targetSifones?: number;
   targetLitros6?: number;
@@ -61,15 +64,6 @@ export interface SalesGoal {
   targetLitros20?: number;
   createdAt?: Date;
   updatedAt?: Date;
-}
-
-export interface MonthlyData {
-  month: number;
-  year: number;
-  sales: SalesEntry;
-  totalIncome: number;
-  totalExpenses: number;
-  netProfit: number;
 }
 
 export interface User {
@@ -93,22 +87,10 @@ export const EXPENSE_CATEGORIES: Record<ExpenseCategory, string> = {
   otros: 'Otros',
 };
 
-export const DEFAULT_PRICES: PriceConfig = {
-  sifones: 21.75,
-  litros6: 39.00,
-  litros12: 91.00,
-  litros20: 136.00,
+/** Estado vacío: cada cuenta debe configurar sus propios márgenes en Firestore. */
+export const EMPTY_MARGINS: PriceConfig = {
+  sifones: 0,
+  litros6: 0,
+  litros12: 0,
+  litros20: 0,
 };
-
-export const DEFAULT_EXPENSES: Omit<Expense, 'id' | 'createdAt' | 'updatedAt'>[] = [
-  { name: 'BPS', amount: 2497, dueDate: '19 de c/mes', category: 'impuestos', isActive: true },
-  { name: 'DGI: RUC', amount: 5660, dueDate: '18 de c/mes', category: 'impuestos', isActive: true },
-  { name: 'Prestamo Moto OCA', amount: 10066, dueDate: '29 de c/mes', category: 'prestamos', isActive: true },
-  { name: 'Porto Seguros Camion', amount: 3663.82, dueDate: '15 de c/mes', category: 'seguros', isActive: true },
-  { name: 'Sueldo Yesy', amount: 32000, dueDate: '8 semanal', category: 'sueldos', isActive: true },
-  { name: 'Combustible', amount: 20000, dueDate: 'Mensual', category: 'vehiculo', isActive: true },
-  { name: 'Patente Camion', amount: 710.05, dueDate: 'Mensual', category: 'vehiculo', isActive: true },
-  { name: 'Service Camion', amount: 4200, dueDate: 'Mensual', category: 'vehiculo', isActive: true },
-  { name: 'Cubiertas Camion', amount: 2000, dueDate: 'Mensual', category: 'vehiculo', isActive: true },
-  { name: 'Peaje', amount: 3888, dueDate: 'Mensual', category: 'vehiculo', isActive: true },
-];

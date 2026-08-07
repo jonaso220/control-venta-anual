@@ -1,8 +1,15 @@
 import { useState, useMemo } from 'react';
-import { Save, ShoppingCart, Target } from 'lucide-react';
+import { CircleAlert, Save, ShoppingCart, Target } from 'lucide-react';
 import type { SalesEntry, PriceConfig, SalesGoal } from '../types';
 import { MONTHS } from '../types';
-import { formatCurrency } from './Dashboard';
+import { formatCurrency } from '../utils/format';
+import {
+  calculateSalesMargin,
+  freezeSalesMargins,
+  getGoalTargetMargin,
+  hasConfiguredMargins,
+  isValidProductAmounts,
+} from '../domain/finance';
 
 interface SalesPageProps {
   sales: SalesEntry[];
@@ -39,11 +46,13 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
     if (editingMonth === null) return;
     setSaving(true);
     try {
-      await onSave({
+      const existing = salesMap.get(editingMonth);
+      await onSave(freezeSalesMargins({
         year,
         month: editingMonth,
         ...form,
-      });
+        marginSnapshot: existing?.marginSnapshot,
+      }, prices));
       setEditingMonth(null);
     } catch {
       // Error handled by parent
@@ -52,18 +61,13 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
     }
   }
 
-  function calcIncome(entry: SalesEntry | undefined) {
-    if (!entry) return 0;
-    return (
-      entry.sifones * prices.sifones +
-      entry.litros6 * prices.litros6 +
-      entry.litros12 * prices.litros12 +
-      entry.litros20 * prices.litros20
-    );
+  function calcMargin(entry: SalesEntry | undefined) {
+    return calculateSalesMargin(entry, prices);
   }
 
   const totalUnits = sales.reduce((a, s) => a + s.sifones + s.litros6 + s.litros12 + s.litros20, 0);
-  const totalIncome = sales.reduce((a, s) => a + calcIncome(s), 0);
+  const totalMargin = sales.reduce((a, s) => a + calcMargin(s), 0);
+  const marginsConfigured = hasConfiguredMargins(prices);
 
   return (
     <div className="space-y-6">
@@ -83,12 +87,22 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
           <div className="stat-card !p-3 !flex-row !items-center !gap-3">
             <span className="text-green-500 font-bold text-lg">$</span>
             <div>
-              <p className="text-xs text-slate-400">Ingresos</p>
-              <p className="font-bold text-slate-900 dark:text-slate-100">{formatCurrency(totalIncome)}</p>
+              <p className="text-xs text-slate-400">Margen bruto</p>
+              <p className="font-bold text-slate-900 dark:text-slate-100">{formatCurrency(totalMargin)}</p>
             </div>
           </div>
         </div>
       </div>
+
+      {!marginsConfigured && (
+        <div role="alert" className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-100">
+          <CircleAlert className="mt-0.5 h-5 w-5 shrink-0" />
+          <div>
+            <p className="font-semibold">Configura los márgenes antes de registrar ventas.</p>
+            <p className="mt-1">Así cada mes conserva el margen aplicado y los cambios futuros no alteran sus resultados históricos.</p>
+          </div>
+        </div>
+      )}
 
       {/* Mobile card view */}
       <div className="md:hidden space-y-3">
@@ -96,14 +110,18 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
           const entry = salesMap.get(month);
           const isEditing = editingMonth === month;
           const totalU = (entry?.sifones ?? 0) + (entry?.litros6 ?? 0) + (entry?.litros12 ?? 0) + (entry?.litros20 ?? 0);
-          const income = calcIncome(entry);
+          const margin = calcMargin(entry);
 
           return (
             <div key={month} className={`card !p-4 ${isEditing ? 'border-blue-300 dark:border-blue-700' : ''}`}>
               <div className="flex items-center justify-between mb-3">
                 <h4 className="font-semibold text-slate-900 dark:text-slate-100">{MONTHS[month - 1]}</h4>
                 {!isEditing && (
-                  <button onClick={() => startEditing(month)} className="btn-secondary !py-1.5 !px-3 text-xs">
+                  <button
+                    onClick={() => startEditing(month)}
+                    disabled={!marginsConfigured && !isValidProductAmounts(entry?.marginSnapshot)}
+                    className="btn-secondary !py-1.5 !px-3 text-xs"
+                  >
                     Editar
                   </button>
                 )}
@@ -162,8 +180,8 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
                       <p className="font-semibold text-slate-900 dark:text-slate-100">{totalU}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-xs text-slate-400">Ingreso</p>
-                      <p className="font-semibold text-green-600">{formatCurrency(income)}</p>
+                      <p className="text-xs text-slate-400">Margen bruto</p>
+                      <p className="font-semibold text-green-600">{formatCurrency(margin)}</p>
                     </div>
                   </div>
                 </div>
@@ -176,7 +194,7 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
             <span className="font-semibold text-slate-900 dark:text-slate-100">Total del año</span>
             <div className="text-right">
               <p className="text-sm text-slate-500 dark:text-slate-400">{totalUnits} unidades</p>
-              <p className="font-bold text-green-600">{formatCurrency(totalIncome)}</p>
+              <p className="font-bold text-green-600">{formatCurrency(totalMargin)}</p>
             </div>
           </div>
         </div>
@@ -193,7 +211,7 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
               <th className="px-4 sm:px-6 py-3 text-right">12 Litros</th>
               <th className="px-4 sm:px-6 py-3 text-right">20 Litros</th>
               <th className="px-4 sm:px-6 py-3 text-right">Total Unid.</th>
-              <th className="px-4 sm:px-6 py-3 text-right">Ingreso</th>
+              <th className="px-4 sm:px-6 py-3 text-right">Margen bruto</th>
               <th className="px-4 sm:px-6 py-3 text-center">Acciones</th>
             </tr>
           </thead>
@@ -202,7 +220,7 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
               const entry = salesMap.get(month);
               const isEditing = editingMonth === month;
               const totalU = (entry?.sifones ?? 0) + (entry?.litros6 ?? 0) + (entry?.litros12 ?? 0) + (entry?.litros20 ?? 0);
-              const income = calcIncome(entry);
+              const margin = calcMargin(entry);
 
               return (
                 <tr key={month} className={`${isEditing ? 'bg-blue-50 dark:bg-blue-900/20' : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'} transition-colors`}>
@@ -242,9 +260,13 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
                       <td className="px-4 sm:px-6 py-3 text-right text-slate-600 dark:text-slate-300">{entry?.litros12 ?? 0}</td>
                       <td className="px-4 sm:px-6 py-3 text-right text-slate-600 dark:text-slate-300">{entry?.litros20 ?? 0}</td>
                       <td className="px-4 sm:px-6 py-3 text-right font-medium text-slate-900 dark:text-slate-100">{totalU}</td>
-                      <td className="px-4 sm:px-6 py-3 text-right font-medium text-green-600">{formatCurrency(income)}</td>
+                      <td className="px-4 sm:px-6 py-3 text-right font-medium text-green-600">{formatCurrency(margin)}</td>
                       <td className="px-4 sm:px-6 py-3 text-center">
-                        <button onClick={() => startEditing(month)} className="btn-secondary !py-1.5 !px-3 text-xs">
+                        <button
+                          onClick={() => startEditing(month)}
+                          disabled={!marginsConfigured && !isValidProductAmounts(entry?.marginSnapshot)}
+                          className="btn-secondary !py-1.5 !px-3 text-xs"
+                        >
                           Editar
                         </button>
                       </td>
@@ -262,7 +284,7 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
               <td className="px-4 sm:px-6 py-3 text-right">{sales.reduce((a, s) => a + s.litros12, 0)}</td>
               <td className="px-4 sm:px-6 py-3 text-right">{sales.reduce((a, s) => a + s.litros20, 0)}</td>
               <td className="px-4 sm:px-6 py-3 text-right">{totalUnits}</td>
-              <td className="px-4 sm:px-6 py-3 text-right text-green-600">{formatCurrency(totalIncome)}</td>
+              <td className="px-4 sm:px-6 py-3 text-right text-green-600">{formatCurrency(totalMargin)}</td>
               <td></td>
             </tr>
           </tfoot>
@@ -272,7 +294,7 @@ export default function SalesPage({ sales, prices, year, onSave, goals, onSaveGo
       {/* Goals section */}
       <GoalsSection goals={goals} year={year} onSaveGoal={onSaveGoal} monthlyData={Array.from({ length: 12 }, (_, i) => {
         const entry = salesMap.get(i + 1);
-        return { month: i + 1, income: calcIncome(entry) };
+        return { month: i + 1, margin: calcMargin(entry) };
       })} />
     </div>
   );
@@ -282,15 +304,15 @@ function GoalsSection({ goals, year, onSaveGoal, monthlyData }: {
   goals: SalesGoal[];
   year: number;
   onSaveGoal: (goal: Omit<SalesGoal, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
-  monthlyData: { month: number; income: number }[];
+  monthlyData: { month: number; margin: number }[];
 }) {
   const [editingMonth, setEditingMonth] = useState<number | null>(null);
-  const [targetIncome, setTargetIncome] = useState(0);
+  const [targetMargin, setTargetMargin] = useState(0);
   const [saving, setSaving] = useState(false);
 
   function startEdit(month: number) {
     const existing = goals.find(g => g.month === month);
-    setTargetIncome(existing?.targetIncome ?? 0);
+    setTargetMargin(existing ? (getGoalTargetMargin(existing) ?? 0) : 0);
     setEditingMonth(month);
   }
 
@@ -298,7 +320,7 @@ function GoalsSection({ goals, year, onSaveGoal, monthlyData }: {
     if (editingMonth === null) return;
     setSaving(true);
     try {
-      await onSaveGoal({ year, month: editingMonth, targetIncome: targetIncome || undefined });
+      await onSaveGoal({ year, month: editingMonth, targetMargin });
       setEditingMonth(null);
     } finally {
       setSaving(false);
@@ -309,14 +331,14 @@ function GoalsSection({ goals, year, onSaveGoal, monthlyData }: {
     <div className="card">
       <div className="flex items-center gap-2 mb-4">
         <Target className="w-5 h-5 text-slate-400" />
-        <h3 className="font-semibold text-slate-900 dark:text-slate-100">Metas de Ingreso Mensual - {year}</h3>
+        <h3 className="font-semibold text-slate-900 dark:text-slate-100">Metas de margen mensual - {year}</h3>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
         {MONTHS.map((name, i) => {
           const month = i + 1;
           const goal = goals.find(g => g.month === month);
-          const actual = monthlyData.find(m => m.month === month)?.income ?? 0;
-          const target = goal?.targetIncome ?? 0;
+          const actual = monthlyData.find(m => m.month === month)?.margin ?? 0;
+          const target = goal ? (getGoalTargetMargin(goal) ?? 0) : 0;
           const pct = target > 0 ? Math.min((actual / target) * 100, 100) : 0;
           const isEditing = editingMonth === month;
 
@@ -329,10 +351,10 @@ function GoalsSection({ goals, year, onSaveGoal, monthlyData }: {
                     type="number"
                     min="0"
                     className="input-field !py-1 text-sm"
-                    placeholder="Meta de ingreso"
-                    value={targetIncome || ''}
+                    placeholder="Meta de margen"
+                    value={targetMargin || ''}
                     onFocus={e => e.target.select()}
-                    onChange={e => setTargetIncome(Number(e.target.value) || 0)}
+                    onChange={e => setTargetMargin(Number(e.target.value) || 0)}
                   />
                   <div className="flex gap-1">
                     <button onClick={handleSave} disabled={saving} className="btn-primary !py-1 !px-2 text-xs">

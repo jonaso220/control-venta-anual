@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Save, DollarSign, History, ChevronDown, ChevronUp } from 'lucide-react';
 import type { PriceConfig } from '../types';
-import { formatCurrency } from './Dashboard';
+import { formatCurrency } from '../utils/format';
 
-interface PriceHistoryEntry {
+interface MarginHistoryEntry {
   sifones: number;
   litros6: number;
   litros12: number;
@@ -15,7 +15,7 @@ interface PricesPageProps {
   prices: PriceConfig;
   onSave: (prices: PriceConfig) => Promise<void>;
   year: number;
-  history: PriceHistoryEntry[];
+  history: MarginHistoryEntry[];
 }
 
 export default function PricesPage({ prices, onSave, year, history }: PricesPageProps) {
@@ -50,27 +50,27 @@ export default function PricesPage({ prices, onSave, year, history }: PricesPage
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Precios de Ganancia</h2>
-        <p className="text-slate-500 dark:text-slate-400">Configura el margen de ganancia por producto - {year}</p>
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Márgenes por unidad</h2>
+        <p className="text-slate-500 dark:text-slate-400">Configura cuánto margen deja cada unidad vendida - {year}</p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 max-w-2xl">
-        <PriceCard label="Sifones" description="Ganancia por sifon" value={form.sifones} onChange={v => setForm(f => ({ ...f, sifones: v }))} color="indigo" />
-        <PriceCard label="6 Litros" description="Ganancia por bidon de 6L" value={form.litros6} onChange={v => setForm(f => ({ ...f, litros6: v }))} color="sky" />
-        <PriceCard label="12 Litros" description="Ganancia por bidon de 12L" value={form.litros12} onChange={v => setForm(f => ({ ...f, litros12: v }))} color="amber" />
-        <PriceCard label="20 Litros" description="Ganancia por bidon de 20L" value={form.litros20} onChange={v => setForm(f => ({ ...f, litros20: v }))} color="emerald" />
+        <PriceCard label="Sifones" description="Margen por sifón" value={form.sifones} onChange={v => setForm(f => ({ ...f, sifones: v }))} color="indigo" />
+        <PriceCard label="6 Litros" description="Margen por bidón de 6L" value={form.litros6} onChange={v => setForm(f => ({ ...f, litros6: v }))} color="sky" />
+        <PriceCard label="12 Litros" description="Margen por bidón de 12L" value={form.litros12} onChange={v => setForm(f => ({ ...f, litros12: v }))} color="amber" />
+        <PriceCard label="20 Litros" description="Margen por bidón de 20L" value={form.litros20} onChange={v => setForm(f => ({ ...f, litros20: v }))} color="emerald" />
       </div>
 
       <div className="flex items-center gap-3 max-w-2xl">
         <button onClick={handleSave} disabled={saving || !hasChanges} className="btn-primary flex items-center gap-2">
           <Save className="w-4 h-4" />
-          {saving ? 'Guardando...' : 'Guardar Precios'}
+          {saving ? 'Guardando...' : 'Guardar márgenes'}
         </button>
-        {saved && <span className="text-sm text-green-600 font-medium">Precios guardados correctamente</span>}
+        {saved && <span className="text-sm text-green-600 font-medium">Márgenes guardados correctamente</span>}
         {!hasChanges && !saved && <span className="text-sm text-slate-400">Sin cambios</span>}
       </div>
 
-      {/* Price History */}
+      {/* Margin history */}
       {history.length > 0 && (
         <div className="max-w-2xl">
           <button
@@ -78,7 +78,7 @@ export default function PricesPage({ prices, onSave, year, history }: PricesPage
             className="flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
           >
             <History className="w-4 h-4" />
-            Historial de cambios ({history.length})
+            Historial de márgenes ({history.length})
             {showHistory ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
           {showHistory && (
@@ -139,6 +139,7 @@ function PriceCard({ label, description, value, onChange, color }: {
         <input
           type="number"
           min="0"
+          max="1000000000"
           step="0.01"
           className="input-field !pl-8 text-lg font-semibold"
           value={value || ''}

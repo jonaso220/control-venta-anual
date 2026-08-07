@@ -1,157 +1,95 @@
-import * as XLSX from 'xlsx';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
-import type { SalesEntry, Expense, PriceConfig, VariableExpense } from '../types';
-import { MONTHS, EXPENSE_CATEGORIES } from '../types';
+import type { Expense, PriceConfig, SalesEntry, VariableExpense } from '../types';
+import { EXPENSE_CATEGORIES, MONTHS } from '../types';
+import {
+  buildMonthlyFinancialResults,
+  calculateSalesMargin,
+  getSalesMargins,
+  isValidProductAmounts,
+} from '../domain/finance';
 
-function formatCurrencyPlain(value: number): string {
-  return new Intl.NumberFormat('es-UY', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value);
-}
-
-// Export Sales to Excel
-export function exportSalesExcel(sales: SalesEntry[], prices: PriceConfig, year: number) {
-  const data = MONTHS.map((month, i) => {
-    const entry = sales.find(s => s.month === i + 1);
-    const sifones = entry?.sifones ?? 0;
-    const l6 = entry?.litros6 ?? 0;
-    const l12 = entry?.litros12 ?? 0;
-    const l20 = entry?.litros20 ?? 0;
-    const income = sifones * prices.sifones + l6 * prices.litros6 + l12 * prices.litros12 + l20 * prices.litros20;
-    return {
-      Mes: month,
-      Sifones: sifones,
-      '6 Litros': l6,
-      '12 Litros': l12,
-      '20 Litros': l20,
-      'Total Unidades': sifones + l6 + l12 + l20,
-      Ingreso: income,
-    };
-  });
-  const ws = XLSX.utils.json_to_sheet(data);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, `Ventas ${year}`);
-  XLSX.writeFile(wb, `ventas_${year}.xlsx`);
-}
-
-// Export Sales to PDF
-export function exportSalesPDF(sales: SalesEntry[], prices: PriceConfig, year: number) {
-  const doc = new jsPDF();
-  doc.setFontSize(16);
-  doc.text(`Ventas - ${year}`, 14, 20);
-
-  const rows = MONTHS.map((month, i) => {
-    const entry = sales.find(s => s.month === i + 1);
-    const sifones = entry?.sifones ?? 0;
-    const l6 = entry?.litros6 ?? 0;
-    const l12 = entry?.litros12 ?? 0;
-    const l20 = entry?.litros20 ?? 0;
-    const income = sifones * prices.sifones + l6 * prices.litros6 + l12 * prices.litros12 + l20 * prices.litros20;
-    return [month, sifones, l6, l12, l20, sifones + l6 + l12 + l20, `$ ${formatCurrencyPlain(income)}`];
-  });
-
-  autoTable(doc, {
-    startY: 30,
-    head: [['Mes', 'Sifones', '6L', '12L', '20L', 'Total Und.', 'Ingreso']],
-    body: rows,
-  });
-
-  doc.save(`ventas_${year}.pdf`);
-}
-
-// Export Expenses to Excel
-export function exportExpensesExcel(fixedExpenses: Expense[], variableExpenses: VariableExpense[], year: number) {
-  const fixedData = fixedExpenses.map(e => ({
-    Nombre: e.name,
-    Categoria: EXPENSE_CATEGORIES[e.category],
-    Vencimiento: e.dueDate,
-    Monto: e.amount,
-    Estado: e.isActive ? 'Activo' : 'Inactivo',
-    Notas: e.notes || '',
-  }));
-
-  const varData = variableExpenses.map(e => ({
-    Fecha: e.date,
-    Descripcion: e.description,
-    Categoria: EXPENSE_CATEGORIES[e.category],
-    Monto: e.amount,
-    Notas: e.notes || '',
-  }));
-
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(fixedData), 'Gastos Fijos');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(varData), 'Gastos Variables');
-  XLSX.writeFile(wb, `gastos_${year}.xlsx`);
-}
-
-// Full backup as Excel with all data
-export function exportFullBackup(
+/**
+ * Generates a year-scoped analysis workbook. It is deliberately separate from
+ * the restorable JSON backup because it only includes the selected year.
+ */
+export async function exportYearExcel(
   sales: SalesEntry[],
   fixedExpenses: Expense[],
   variableExpenses: VariableExpense[],
-  prices: PriceConfig,
-  year: number
-) {
-  const wb = XLSX.utils.book_new();
+  margins: PriceConfig,
+  year: number,
+): Promise<void> {
+  const XLSX = await import('xlsx');
+  const workbook = XLSX.utils.book_new();
+  const salesByMonth = new Map(sales.map(entry => [entry.month, entry]));
+  const financialMonths = buildMonthlyFinancialResults({
+    sales,
+    margins,
+    fixedExpenses,
+    variableExpenses,
+    year,
+  });
 
-  // Sales sheet
-  const salesData = MONTHS.map((month, i) => {
-    const entry = sales.find(s => s.month === i + 1);
+  const summaryData = financialMonths.map((result, index) => ({
+    Mes: MONTHS[index],
+    'Margen bruto': result.grossMargin,
+    'Gastos fijos': result.fixedExpenses,
+    'Gastos variables': result.variableExpenses,
+    'Gastos totales': result.totalExpenses,
+    'Resultado neto': result.netResult,
+  }));
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(summaryData), 'Resumen');
+
+  const salesData = MONTHS.map((month, index) => {
+    const entry = salesByMonth.get(index + 1);
+    const appliedMargins = entry ? getSalesMargins(entry, margins) : margins;
     return {
       Mes: month,
       Sifones: entry?.sifones ?? 0,
       '6 Litros': entry?.litros6 ?? 0,
       '12 Litros': entry?.litros12 ?? 0,
       '20 Litros': entry?.litros20 ?? 0,
+      'Total unidades': entry
+        ? entry.sifones + entry.litros6 + entry.litros12 + entry.litros20
+        : 0,
+      'Margen unitario sifones': appliedMargins.sifones,
+      'Margen unitario 6L': appliedMargins.litros6,
+      'Margen unitario 12L': appliedMargins.litros12,
+      'Margen unitario 20L': appliedMargins.litros20,
+      'Margen bruto': calculateSalesMargin(entry, margins),
+      'Origen del margen': !entry
+        ? 'Sin venta'
+        : isValidProductAmounts(entry.marginSnapshot)
+          ? 'Snapshot histórico'
+          : 'Configuración actual (registro legado)',
     };
   });
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(salesData), 'Ventas');
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(salesData), 'Ventas');
 
-  // Fixed expenses
-  const fixedData = fixedExpenses.map(e => ({
-    Nombre: e.name,
-    Categoria: EXPENSE_CATEGORIES[e.category],
-    Vencimiento: e.dueDate,
-    Monto: e.amount,
-    Estado: e.isActive ? 'Activo' : 'Inactivo',
-    Notas: e.notes || '',
+  const fixedData = fixedExpenses.map(expense => ({
+    Nombre: expense.name,
+    Categoría: EXPENSE_CATEGORIES[expense.category],
+    Vencimiento: expense.dueDate,
+    Monto: expense.amount,
+    Estado: expense.isActive ? 'Activo' : 'Inactivo',
+    Notas: expense.notes || '',
   }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(fixedData), 'Gastos Fijos');
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(fixedData), 'Gastos Fijos');
 
-  // Variable expenses
-  const varData = variableExpenses.map(e => ({
-    Fecha: e.date,
-    Descripcion: e.description,
-    Categoria: EXPENSE_CATEGORIES[e.category],
-    Monto: e.amount,
-    Notas: e.notes || '',
+  const variableData = variableExpenses.map(expense => ({
+    Fecha: expense.date,
+    Descripción: expense.description,
+    Categoría: EXPENSE_CATEGORIES[expense.category],
+    Monto: expense.amount,
+    Notas: expense.notes || '',
   }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(varData), 'Gastos Variables');
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(variableData), 'Gastos Variables');
 
-  // Prices
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([{
-    Sifones: prices.sifones,
-    '6 Litros': prices.litros6,
-    '12 Litros': prices.litros12,
-    '20 Litros': prices.litros20,
-  }]), 'Precios');
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([{
+    Sifones: margins.sifones,
+    '6 Litros': margins.litros6,
+    '12 Litros': margins.litros12,
+    '20 Litros': margins.litros20,
+  }]), 'Márgenes actuales');
 
-  XLSX.writeFile(wb, `backup_${year}.xlsx`);
-}
-
-// Full backup as JSON
-export function exportFullBackupJSON(
-  sales: SalesEntry[],
-  fixedExpenses: Expense[],
-  variableExpenses: VariableExpense[],
-  prices: PriceConfig,
-  year: number
-) {
-  const data = { year, sales, fixedExpenses, variableExpenses, prices };
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `backup_${year}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
+  XLSX.writeFile(workbook, `informe_anual_${year}.xlsx`);
 }

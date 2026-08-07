@@ -11,7 +11,8 @@ export default function YearSelector({ year, onChange }: YearSelectorProps) {
       <Calendar className="w-4 h-4 text-slate-400" />
       <button
         onClick={() => onChange(year - 1)}
-        className="p-1 hover:bg-slate-100 rounded transition-colors dark:hover:bg-slate-600"
+        disabled={year <= 2000}
+        className="p-1 hover:bg-slate-100 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed dark:hover:bg-slate-600"
         aria-label="Año anterior"
       >
         <ChevronLeft className="w-4 h-4 text-slate-500 dark:text-slate-300" />
@@ -19,7 +20,8 @@ export default function YearSelector({ year, onChange }: YearSelectorProps) {
       <span className="font-semibold text-slate-900 min-w-[4ch] text-center dark:text-slate-100">{year}</span>
       <button
         onClick={() => onChange(year + 1)}
-        className="p-1 hover:bg-slate-100 rounded transition-colors dark:hover:bg-slate-600"
+        disabled={year >= 2099}
+        className="p-1 hover:bg-slate-100 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed dark:hover:bg-slate-600"
         aria-label="Año siguiente"
       >
         <ChevronRight className="w-4 h-4 text-slate-500 dark:text-slate-300" />

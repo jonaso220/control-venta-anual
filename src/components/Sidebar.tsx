@@ -14,7 +14,7 @@ const NAV_ITEMS = [
   { id: 'sales', label: 'Ventas', icon: ShoppingCart },
   { id: 'expenses', label: 'Gastos Fijos', icon: Receipt },
   { id: 'variable-expenses', label: 'Gastos Variables', icon: Wallet },
-  { id: 'prices', label: 'Precios', icon: DollarSign },
+  { id: 'prices', label: 'Márgenes', icon: DollarSign },
   { id: 'settings', label: 'Configuracion', icon: Settings },
 ];
 

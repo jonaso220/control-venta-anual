@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { Plus, Pencil, Trash2, Save, Wallet, Search } from 'lucide-react';
 import type { VariableExpense, ExpenseCategory } from '../types';
 import { EXPENSE_CATEGORIES, MONTHS } from '../types';
-import { formatCurrency } from './Dashboard';
+import { formatCurrency } from '../utils/format';
 
 interface VariableExpensesPageProps {
   expenses: VariableExpense[];
@@ -349,6 +349,7 @@ function FormFields({ form, setForm }: {
           type="text"
           className="input-field"
           placeholder="Ej: Reparacion motor"
+          maxLength={200}
           value={form.description}
           onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
         />
@@ -357,7 +358,8 @@ function FormFields({ form, setForm }: {
         <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Monto ($)</label>
         <input
           type="number"
-          min="0"
+          min="0.01"
+          max="1000000000000"
           step="0.01"
           className="input-field"
           value={form.amount || ''}
@@ -383,6 +385,7 @@ function FormFields({ form, setForm }: {
           type="text"
           className="input-field"
           placeholder="Opcional"
+          maxLength={1000}
           value={form.notes || ''}
           onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
         />

@@ -33,7 +33,7 @@ export default function LoginPage() {
             Control de ventas anual
           </h1>
           <p className="text-slate-500 mb-8">
-            Gestion de ventas, gastos y ganancias
+            Gestión de ventas, gastos y resultados
           </p>
           {!firebaseReady && (
             <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800 text-left">

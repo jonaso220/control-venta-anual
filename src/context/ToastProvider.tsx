@@ -1,22 +1,11 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
-import { CheckCircle, XCircle, Info, X } from 'lucide-react';
-
-type ToastType = 'success' | 'error' | 'info';
+import { useCallback, useState, type ReactNode } from 'react';
+import { CheckCircle, Info, X, XCircle } from 'lucide-react';
+import { ToastContext, type ToastType } from './ToastContext';
 
 interface Toast {
   id: number;
   message: string;
   type: ToastType;
-}
-
-interface ToastContextType {
-  toast: (message: string, type?: ToastType) => void;
-}
-
-const ToastContext = createContext<ToastContextType>({ toast: () => {} });
-
-export function useToast() {
-  return useContext(ToastContext);
 }
 
 let nextId = 0;
@@ -26,14 +15,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const toast = useCallback((message: string, type: ToastType = 'success') => {
     const id = nextId++;
-    setToasts(prev => [...prev, { id, message, type }]);
+    setToasts(previous => [...previous, { id, message, type }]);
     setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id));
+      setToasts(previous => previous.filter(item => item.id !== id));
     }, 3000);
   }, []);
 
   const dismiss = useCallback((id: number) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
+    setToasts(previous => previous.filter(item => item.id !== id));
   }, []);
 
   const icons = {
@@ -52,14 +41,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={{ toast }}>
       {children}
       <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
-        {toasts.map(t => (
+        {toasts.map(item => (
           <div
-            key={t.id}
-            className={`flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg animate-slide-in ${bgColors[t.type]}`}
+            key={item.id}
+            className={`flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg animate-slide-in ${bgColors[item.type]}`}
           >
-            {icons[t.type]}
-            <span className="text-sm font-medium text-slate-700">{t.message}</span>
-            <button onClick={() => dismiss(t.id)} className="ml-2 text-slate-400 hover:text-slate-600">
+            {icons[item.type]}
+            <span className="text-sm font-medium text-slate-700">{item.message}</span>
+            <button onClick={() => dismiss(item.id)} className="ml-2 text-slate-400 hover:text-slate-600" aria-label="Cerrar aviso">
               <X className="w-4 h-4" />
             </button>
           </div>

@@ -1,0 +1,289 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    function hasExactFields(data, required, optional) {
+      return data.keys().hasAll(required)
+        && data.keys().hasOnly(required.concat(optional));
+    }
+
+    function isNumber(value) {
+      return value is int || value is float;
+    }
+
+    function isBoundedNumber(value, minimum, maximum) {
+      return isNumber(value) && value >= minimum && value <= maximum;
+    }
+
+    function isBoundedInteger(value, minimum, maximum) {
+      return value is int && value >= minimum && value <= maximum;
+    }
+
+    function isValidYear(year) {
+      return isBoundedInteger(year, 2000, 2099);
+    }
+
+    function isValidYearMonthId(documentId, year, month) {
+      return isValidYear(year)
+        && isBoundedInteger(month, 1, 12)
+        && (
+          (month < 10 && documentId == string(year) + '-0' + string(month))
+          || (month >= 10 && documentId == string(year) + '-' + string(month))
+        );
+    }
+
+    function isValidCategory(category) {
+      return category in [
+        'impuestos',
+        'prestamos',
+        'seguros',
+        'sueldos',
+        'vehiculo',
+        'otros'
+      ];
+    }
+
+    function isValidRequiredText(value, maximumLength) {
+      return value is string
+        && value.trim().size() > 0
+        && value.size() <= maximumLength;
+    }
+
+    function isValidOptionalText(data, field, maximumLength) {
+      return !(field in data)
+        || (data[field] is string && data[field].size() <= maximumLength);
+    }
+
+    function hasCurrentTimestamp(data, field) {
+      return field in data
+        && data[field] is timestamp
+        && data[field] == request.time;
+    }
+
+    function isValidHistoricalTimestamp(data, field) {
+      return field in data
+        && data[field] is timestamp
+        && data[field] >= timestamp.date(2000, 1, 1)
+        && data[field] <= request.time;
+    }
+
+    function hasValidOptionalHistoricalTimestamp(data, field) {
+      return !(field in data) || isValidHistoricalTimestamp(data, field);
+    }
+
+    function isValidPriceMap(prices) {
+      return prices is map
+        && hasExactFields(
+          prices,
+          ['sifones', 'litros6', 'litros12', 'litros20'],
+          []
+        )
+        && isBoundedNumber(prices.sifones, 0, 1000000000)
+        && isBoundedNumber(prices.litros6, 0, 1000000000)
+        && isBoundedNumber(prices.litros12, 0, 1000000000)
+        && isBoundedNumber(prices.litros20, 0, 1000000000);
+    }
+
+    function isValidSales(data, saleId) {
+      return hasExactFields(
+          data,
+          [
+            'year',
+            'month',
+            'sifones',
+            'litros6',
+            'litros12',
+            'litros20',
+            'marginSnapshot',
+            'updatedAt'
+          ],
+          ['createdAt']
+        )
+        && isValidYearMonthId(saleId, data.year, data.month)
+        && isBoundedInteger(data.sifones, 0, 1000000000)
+        && isBoundedInteger(data.litros6, 0, 1000000000)
+        && isBoundedInteger(data.litros12, 0, 1000000000)
+        && isBoundedInteger(data.litros20, 0, 1000000000)
+        && isValidPriceMap(data.marginSnapshot)
+        && hasCurrentTimestamp(data, 'updatedAt')
+        && hasValidOptionalHistoricalTimestamp(data, 'createdAt');
+    }
+
+    function isValidExpense(data) {
+      return hasExactFields(
+          data,
+          ['name', 'amount', 'dueDate', 'category', 'isActive', 'createdAt', 'updatedAt'],
+          ['notes']
+        )
+        && isValidRequiredText(data.name, 120)
+        && isBoundedNumber(data.amount, 0.01, 1000000000000)
+        && data.dueDate is string
+        && data.dueDate.size() <= 80
+        && isValidCategory(data.category)
+        && data.isActive is bool
+        && isValidOptionalText(data, 'notes', 1000)
+        && isValidHistoricalTimestamp(data, 'createdAt')
+        && hasCurrentTimestamp(data, 'updatedAt');
+    }
+
+    function isValidVariableExpense(data) {
+      return hasExactFields(
+          data,
+          ['date', 'description', 'amount', 'category', 'createdAt', 'updatedAt'],
+          ['notes']
+        )
+        && data.date is string
+        && data.date.matches(
+          '^(20)[0-9]{2}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$'
+        )
+        && isValidRequiredText(data.description, 200)
+        && isBoundedNumber(data.amount, 0.01, 1000000000000)
+        && isValidCategory(data.category)
+        && isValidOptionalText(data, 'notes', 1000)
+        && isValidHistoricalTimestamp(data, 'createdAt')
+        && hasCurrentTimestamp(data, 'updatedAt');
+    }
+
+    function isValidPrices(data, configId) {
+      return configId.matches('^prices-(20)[0-9]{2}$')
+        && hasExactFields(
+          data,
+          ['sifones', 'litros6', 'litros12', 'litros20', 'updatedAt'],
+          []
+        )
+        && isBoundedNumber(data.sifones, 0, 1000000000)
+        && isBoundedNumber(data.litros6, 0, 1000000000)
+        && isBoundedNumber(data.litros12, 0, 1000000000)
+        && isBoundedNumber(data.litros20, 0, 1000000000)
+        && hasCurrentTimestamp(data, 'updatedAt');
+    }
+
+    function isValidPriceHistory(data) {
+      return hasExactFields(
+          data,
+          ['year', 'sifones', 'litros6', 'litros12', 'litros20', 'changedAt'],
+          []
+        )
+        && isValidYear(data.year)
+        && isBoundedNumber(data.sifones, 0, 1000000000)
+        && isBoundedNumber(data.litros6, 0, 1000000000)
+        && isBoundedNumber(data.litros12, 0, 1000000000)
+        && isBoundedNumber(data.litros20, 0, 1000000000)
+        && isValidHistoricalTimestamp(data, 'changedAt');
+    }
+
+    function isValidOptionalGoal(data, field) {
+      return !(field in data)
+        || isBoundedNumber(data[field], 0, 1000000000000);
+    }
+
+    function isValidOptionalUnitGoal(data, field) {
+      return !(field in data)
+        || isBoundedInteger(data[field], 0, 1000000000);
+    }
+
+    function isValidGoal(data, goalId) {
+      return hasExactFields(
+          data,
+          ['year', 'month', 'updatedAt'],
+          [
+            'targetMargin',
+            'targetIncome',
+            'targetSifones',
+            'targetLitros6',
+            'targetLitros12',
+            'targetLitros20',
+            'createdAt'
+          ]
+        )
+        && isValidYearMonthId(goalId, data.year, data.month)
+        && data.keys().hasAny([
+          'targetMargin',
+          'targetIncome',
+          'targetSifones',
+          'targetLitros6',
+          'targetLitros12',
+          'targetLitros20'
+        ])
+        && isValidOptionalGoal(data, 'targetMargin')
+        && isValidOptionalGoal(data, 'targetIncome')
+        && isValidOptionalUnitGoal(data, 'targetSifones')
+        && isValidOptionalUnitGoal(data, 'targetLitros6')
+        && isValidOptionalUnitGoal(data, 'targetLitros12')
+        && isValidOptionalUnitGoal(data, 'targetLitros20')
+        && hasCurrentTimestamp(data, 'updatedAt')
+        && hasValidOptionalHistoricalTimestamp(data, 'createdAt');
+    }
+
+    match /users/{uid}/sales/{saleId} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid)
+        && isValidSales(request.resource.data, saleId)
+        && hasValidOptionalHistoricalTimestamp(request.resource.data, 'createdAt');
+      allow update: if isOwner(uid)
+        && isValidSales(request.resource.data, saleId)
+        && request.resource.data.get('createdAt', null)
+          == resource.data.get('createdAt', null)
+        && (!('marginSnapshot' in resource.data)
+          || request.resource.data.marginSnapshot == resource.data.marginSnapshot);
+      allow delete: if isOwner(uid);
+    }
+
+    match /users/{uid}/expenses/{expenseId} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid)
+        && isValidExpense(request.resource.data);
+      allow update: if isOwner(uid)
+        && isValidExpense(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isOwner(uid);
+    }
+
+    match /users/{uid}/variableExpenses/{expenseId} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid)
+        && isValidVariableExpense(request.resource.data);
+      allow update: if isOwner(uid)
+        && isValidVariableExpense(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isOwner(uid);
+    }
+
+    match /users/{uid}/config/{configId} {
+      allow read: if isOwner(uid) && configId.matches('^prices-(20)[0-9]{2}$');
+      allow create, update: if isOwner(uid) && isValidPrices(request.resource.data, configId);
+      allow delete: if isOwner(uid) && configId.matches('^prices-(20)[0-9]{2}$');
+    }
+
+    match /users/{uid}/priceHistory/{historyId} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) && isValidPriceHistory(request.resource.data);
+      allow update: if isOwner(uid)
+        && isValidPriceHistory(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().size() == 0;
+      allow delete: if false;
+    }
+
+    match /users/{uid}/goals/{goalId} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid)
+        && isValidGoal(request.resource.data, goalId)
+        && hasValidOptionalHistoricalTimestamp(request.resource.data, 'createdAt');
+      allow update: if isOwner(uid)
+        && isValidGoal(request.resource.data, goalId)
+        && request.resource.data.get('createdAt', null)
+          == resource.data.get('createdAt', null);
+      allow delete: if isOwner(uid);
+    }
+
+    // Closed by default: parent user documents, unknown collections and any
+    // future nested paths require an explicit rule before clients can use them.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

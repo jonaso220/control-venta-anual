@@ -1,24 +1,25 @@
 import { useMemo } from 'react';
 import { TrendingUp, TrendingDown, DollarSign, ShoppingCart, Receipt, BarChart3, PieChart as PieIcon } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend, PieChart, Pie, Cell } from 'recharts';
-import type { SalesEntry, PriceConfig, Expense, SalesGoal } from '../types';
+import type { SalesEntry, PriceConfig, Expense, SalesGoal, VariableExpense } from '../types';
 import { MONTHS, EXPENSE_CATEGORIES } from '../types';
+import {
+  buildMonthlyFinancialResults,
+  calculateFixedMonthlyExpenses,
+  getElapsedMonthCount,
+  getGoalTargetMargin,
+  projectAnnualTotals,
+  sumFinancialResults,
+} from '../domain/finance';
+import { formatCurrency } from '../utils/format';
 
 interface DashboardProps {
   sales: SalesEntry[];
   prices: PriceConfig;
   expenses: Expense[];
+  variableExpenses: VariableExpense[];
   year: number;
   goals: SalesGoal[];
-}
-
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('es-UY', {
-    style: 'currency',
-    currency: 'UYU',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  }).format(value);
 }
 
 const PIE_COLORS: Record<string, string> = {
@@ -30,101 +31,113 @@ const PIE_COLORS: Record<string, string> = {
   otros: '#64748b',
 };
 
-export default function Dashboard({ sales, prices, expenses, year, goals }: DashboardProps) {
+export default function Dashboard({ sales, prices, expenses, variableExpenses, year, goals }: DashboardProps) {
   const totalExpensesMonthly = useMemo(() => {
-    return expenses.filter(e => e.isActive).reduce((acc, e) => acc + e.amount, 0);
+    return calculateFixedMonthlyExpenses(expenses);
   }, [expenses]);
 
-  const monthlyData = useMemo(() => {
-    return Array.from({ length: 12 }, (_, i) => {
-      const month = i + 1;
-      const entry = sales.find(s => s.month === month);
-      const sifones = entry?.sifones ?? 0;
-      const l6 = entry?.litros6 ?? 0;
-      const l12 = entry?.litros12 ?? 0;
-      const l20 = entry?.litros20 ?? 0;
+  const financialMonths = useMemo(() => buildMonthlyFinancialResults({
+    sales,
+    margins: prices,
+    fixedExpenses: expenses,
+    variableExpenses,
+    year,
+  }), [sales, prices, expenses, variableExpenses, year]);
 
-      const income =
-        sifones * prices.sifones +
-        l6 * prices.litros6 +
-        l12 * prices.litros12 +
-        l20 * prices.litros20;
+  const monthlyData = useMemo(() => financialMonths.map((result, index) => ({
+    month: MONTHS[index].substring(0, 3),
+    monthFull: MONTHS[index],
+    margenBruto: result.grossMargin,
+    gastos: result.totalExpenses,
+    resultado: result.netResult,
+    sifones: result.units.sifones,
+    litros6: result.units.litros6,
+    litros12: result.units.litros12,
+    litros20: result.units.litros20,
+    totalUnidades: result.totalUnits,
+  })), [financialMonths]);
 
-      return {
-        month: MONTHS[i].substring(0, 3),
-        monthFull: MONTHS[i],
-        ingresos: income,
-        gastos: totalExpensesMonthly,
-        ganancia: income - totalExpensesMonthly,
-        sifones,
-        litros6: l6,
-        litros12: l12,
-        litros20: l20,
-        totalUnidades: sifones + l6 + l12 + l20,
-      };
-    });
-  }, [sales, prices, totalExpensesMonthly]);
+  const elapsedMonths = getElapsedMonthCount(year);
+  const chartData = monthlyData.slice(0, elapsedMonths);
 
   const totals = useMemo(() => {
-    const totalIncome = monthlyData.reduce((a, m) => a + m.ingresos, 0);
-    const totalExpenses = totalExpensesMonthly * 12;
-    const totalUnits = monthlyData.reduce((a, m) => a + m.totalUnidades, 0);
-    return {
-      income: totalIncome,
-      expenses: totalExpenses,
-      profit: totalIncome - totalExpenses,
-      units: totalUnits,
-    };
-  }, [monthlyData, totalExpensesMonthly]);
+    return sumFinancialResults(financialMonths.slice(0, elapsedMonths));
+  }, [financialMonths, elapsedMonths]);
+
+  const annualProjection = useMemo(() => {
+    return projectAnnualTotals(totals, elapsedMonths, totalExpensesMonthly);
+  }, [totals, elapsedMonths, totalExpensesMonthly]);
 
   const expensesByCategory = useMemo(() => {
-    const active = expenses.filter(e => e.isActive);
     const grouped: Record<string, number> = {};
-    active.forEach(e => {
-      grouped[e.category] = (grouped[e.category] || 0) + e.amount;
+
+    expenses.forEach(expense => {
+      if (!expense.isActive || !Number.isFinite(expense.amount) || expense.amount < 0) return;
+      grouped[expense.category] = (grouped[expense.category] || 0) + expense.amount * elapsedMonths;
     });
+
+    variableExpenses.forEach(expense => {
+      const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(expense.date);
+      const expenseMonth = match ? Number(match[2]) : 0;
+      if (
+        !match ||
+        Number(match[1]) !== year ||
+        expenseMonth < 1 ||
+        expenseMonth > elapsedMonths ||
+        !Number.isFinite(expense.amount) ||
+        expense.amount < 0
+      ) return;
+      grouped[expense.category] = (grouped[expense.category] || 0) + expense.amount;
+    });
+
     return Object.entries(grouped).map(([category, amount]) => ({
       name: EXPENSE_CATEGORIES[category as keyof typeof EXPENSE_CATEGORIES] || category,
       value: amount,
       color: PIE_COLORS[category] || '#64748b',
-    }));
-  }, [expenses]);
+    })).filter(entry => entry.value > 0);
+  }, [expenses, variableExpenses, elapsedMonths, year]);
 
-  const isProfit = totals.profit >= 0;
+  const isProfit = totals.netResult >= 0;
+  const projectionLabel = elapsedMonths === 12 ? 'Total anual' : 'Proyección anual';
+  const periodLabel = elapsedMonths === 0
+    ? 'El año seleccionado aún no comenzó'
+    : elapsedMonths === 12
+      ? `Cierre del año ${year}`
+      : `Acumulado hasta ${MONTHS[elapsedMonths - 1]} de ${year}`;
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Dashboard</h2>
-        <p className="text-slate-500 dark:text-slate-400">Resumen del año {year}</p>
+        <p className="text-slate-500 dark:text-slate-400">{periodLabel}</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="stat-card">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Ingresos Totales</span>
+            <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Margen bruto acumulado</span>
             <div className="w-8 h-8 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
               <DollarSign className="w-4 h-4 text-green-600 dark:text-green-400" />
             </div>
           </div>
-          <span className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100 break-words">{formatCurrency(totals.income)}</span>
-          <span className="text-xs text-slate-400">Año {year}</span>
+          <span className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100 break-words">{formatCurrency(totals.grossMargin)}</span>
+          <span className="text-xs text-slate-400">{projectionLabel}: {formatCurrency(annualProjection.grossMargin)}</span>
         </div>
 
         <div className="stat-card">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Gastos Totales</span>
+            <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Gastos acumulados</span>
             <div className="w-8 h-8 bg-red-100 dark:bg-red-900/30 rounded-lg flex items-center justify-center">
               <Receipt className="w-4 h-4 text-red-600 dark:text-red-400" />
             </div>
           </div>
-          <span className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100 break-words">{formatCurrency(totals.expenses)}</span>
-          <span className="text-xs text-slate-400">{formatCurrency(totalExpensesMonthly)}/mes</span>
+          <span className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100 break-words">{formatCurrency(totals.totalExpenses)}</span>
+          <span className="text-xs text-slate-400">{projectionLabel}: {formatCurrency(annualProjection.totalExpenses)}</span>
         </div>
 
         <div className="stat-card">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Ganancia Neta</span>
+            <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Resultado neto acumulado</span>
             <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isProfit ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-red-100 dark:bg-red-900/30'}`}>
               {isProfit ? (
                 <TrendingUp className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
@@ -134,9 +147,9 @@ export default function Dashboard({ sales, prices, expenses, year, goals }: Dash
             </div>
           </div>
           <span className={`text-xl sm:text-2xl font-bold break-words ${isProfit ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
-            {formatCurrency(totals.profit)}
+            {formatCurrency(totals.netResult)}
           </span>
-          <span className="text-xs text-slate-400">Despues de gastos</span>
+          <span className="text-xs text-slate-400">{projectionLabel}: {formatCurrency(annualProjection.netResult)}</span>
         </div>
 
         <div className="stat-card">
@@ -146,8 +159,8 @@ export default function Dashboard({ sales, prices, expenses, year, goals }: Dash
               <ShoppingCart className="w-4 h-4 text-blue-600 dark:text-blue-400" />
             </div>
           </div>
-          <span className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100 break-words">{totals.units.toLocaleString()}</span>
-          <span className="text-xs text-slate-400">Total del año</span>
+          <span className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100 break-words">{totals.totalUnits.toLocaleString()}</span>
+          <span className="text-xs text-slate-400">{projectionLabel}: {Math.round(annualProjection.totalUnits).toLocaleString()}</span>
         </div>
       </div>
 
@@ -155,11 +168,11 @@ export default function Dashboard({ sales, prices, expenses, year, goals }: Dash
         <div className="card">
           <div className="flex items-center gap-2 mb-4">
             <BarChart3 className="w-5 h-5 text-slate-400" />
-            <h3 className="font-semibold text-slate-900 dark:text-slate-100">Ingresos vs Gastos</h3>
+            <h3 className="font-semibold text-slate-900 dark:text-slate-100">Margen bruto vs gastos</h3>
           </div>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={monthlyData}>
+              <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="#94a3b8" />
                 <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" />
@@ -168,7 +181,7 @@ export default function Dashboard({ sales, prices, expenses, year, goals }: Dash
                   contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
                 />
                 <Legend />
-                <Bar dataKey="ingresos" name="Ingresos" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="margenBruto" name="Margen bruto" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="gastos" name="Gastos" fill="#ef4444" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -178,11 +191,11 @@ export default function Dashboard({ sales, prices, expenses, year, goals }: Dash
         <div className="card">
           <div className="flex items-center gap-2 mb-4">
             <TrendingUp className="w-5 h-5 text-slate-400" />
-            <h3 className="font-semibold text-slate-900 dark:text-slate-100">Ganancia Mensual</h3>
+            <h3 className="font-semibold text-slate-900 dark:text-slate-100">Resultado mensual</h3>
           </div>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={monthlyData}>
+              <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="#94a3b8" />
                 <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" />
@@ -190,7 +203,7 @@ export default function Dashboard({ sales, prices, expenses, year, goals }: Dash
                   formatter={(value) => formatCurrency(Number(value))}
                   contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
                 />
-                <Line type="monotone" dataKey="ganancia" name="Ganancia" stroke="#10b981" strokeWidth={2} dot={{ fill: '#10b981' }} />
+                <Line type="monotone" dataKey="resultado" name="Resultado neto" stroke="#10b981" strokeWidth={2} dot={{ fill: '#10b981' }} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -205,7 +218,7 @@ export default function Dashboard({ sales, prices, expenses, year, goals }: Dash
           </div>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={monthlyData}>
+              <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="#94a3b8" />
                 <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" />
@@ -223,7 +236,7 @@ export default function Dashboard({ sales, prices, expenses, year, goals }: Dash
         <div className="card">
           <div className="flex items-center gap-2 mb-4">
             <PieIcon className="w-5 h-5 text-slate-400" />
-            <h3 className="font-semibold text-slate-900 dark:text-slate-100">Gastos por Categoria</h3>
+            <h3 className="font-semibold text-slate-900 dark:text-slate-100">Gastos acumulados por categoría</h3>
           </div>
           <div className="h-72">
             {expensesByCategory.length > 0 ? (
@@ -262,15 +275,16 @@ export default function Dashboard({ sales, prices, expenses, year, goals }: Dash
           <div className="space-y-3">
             {goals.map(goal => {
               const data = monthlyData[goal.month - 1];
-              if (!data || !goal.targetIncome) return null;
-              const actual = data.ingresos;
-              const pct = goal.targetIncome > 0 ? Math.min((actual / goal.targetIncome) * 100, 100) : 0;
+              const targetMargin = getGoalTargetMargin(goal);
+              if (!data || !targetMargin) return null;
+              const actual = data.margenBruto;
+              const pct = targetMargin > 0 ? Math.min((actual / targetMargin) * 100, 100) : 0;
               return (
                 <div key={goal.month} className="space-y-1">
                   <div className="flex justify-between text-sm">
                     <span className="font-medium text-slate-700 dark:text-slate-300">{MONTHS[goal.month - 1]}</span>
                     <span className="text-slate-500 dark:text-slate-400">
-                      {formatCurrency(actual)} / {formatCurrency(goal.targetIncome)} ({pct.toFixed(0)}%)
+                      {formatCurrency(actual)} / {formatCurrency(targetMargin)} ({pct.toFixed(0)}%)
                     </span>
                   </div>
                   <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2">
@@ -288,5 +302,3 @@ export default function Dashboard({ sales, prices, expenses, year, goals }: Dash
     </div>
   );
 }
-
-export { formatCurrency };
