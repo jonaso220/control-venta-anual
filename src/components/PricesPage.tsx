@@ -55,10 +55,10 @@ export default function PricesPage({ prices, onSave, year, history }: PricesPage
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 max-w-2xl">
-        <PriceCard label="Sifones" description="Margen por sifón" value={form.sifones} onChange={v => setForm(f => ({ ...f, sifones: v }))} color="indigo" />
-        <PriceCard label="6 Litros" description="Margen por bidón de 6L" value={form.litros6} onChange={v => setForm(f => ({ ...f, litros6: v }))} color="sky" />
-        <PriceCard label="12 Litros" description="Margen por bidón de 12L" value={form.litros12} onChange={v => setForm(f => ({ ...f, litros12: v }))} color="amber" />
-        <PriceCard label="20 Litros" description="Margen por bidón de 20L" value={form.litros20} onChange={v => setForm(f => ({ ...f, litros20: v }))} color="emerald" />
+        <PriceCard inputId="margin-sifones" label="Sifones" description="Margen por sifón" value={form.sifones} onChange={v => setForm(f => ({ ...f, sifones: v }))} color="indigo" />
+        <PriceCard inputId="margin-litros6" label="6 Litros" description="Margen por bidón de 6L" value={form.litros6} onChange={v => setForm(f => ({ ...f, litros6: v }))} color="sky" />
+        <PriceCard inputId="margin-litros12" label="12 Litros" description="Margen por bidón de 12L" value={form.litros12} onChange={v => setForm(f => ({ ...f, litros12: v }))} color="amber" />
+        <PriceCard inputId="margin-litros20" label="20 Litros" description="Margen por bidón de 20L" value={form.litros20} onChange={v => setForm(f => ({ ...f, litros20: v }))} color="emerald" />
       </div>
 
       <div className="flex items-center gap-3 max-w-2xl">
@@ -66,7 +66,7 @@ export default function PricesPage({ prices, onSave, year, history }: PricesPage
           <Save className="w-4 h-4" />
           {saving ? 'Guardando...' : 'Guardar márgenes'}
         </button>
-        {saved && <span className="text-sm text-green-600 font-medium">Márgenes guardados correctamente</span>}
+        {saved && <span role="status" aria-live="polite" className="text-sm text-green-600 font-medium">Márgenes guardados correctamente</span>}
         {!hasChanges && !saved && <span className="text-sm text-slate-400">Sin cambios</span>}
       </div>
 
@@ -109,7 +109,8 @@ export default function PricesPage({ prices, onSave, year, history }: PricesPage
   );
 }
 
-function PriceCard({ label, description, value, onChange, color }: {
+function PriceCard({ inputId, label, description, value, onChange, color }: {
+  inputId: string;
   label: string;
   description: string;
   value: number;
@@ -127,16 +128,19 @@ function PriceCard({ label, description, value, onChange, color }: {
     <div className="card">
       <div className="flex items-center gap-3 mb-4">
         <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${colorMap[color]}`}>
-          <DollarSign className="w-5 h-5" />
+          <DollarSign className="w-5 h-5" aria-hidden="true" />
         </div>
         <div>
-          <h3 className="font-semibold text-slate-900 dark:text-slate-100">{label}</h3>
-          <p className="text-xs text-slate-400">{description}</p>
+          <label htmlFor={inputId} className="font-semibold text-slate-900 dark:text-slate-100">{label}</label>
+          <p id={`${inputId}-description`} className="text-xs text-slate-400">{description}</p>
         </div>
       </div>
       <div className="relative">
-        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">$</span>
+        <span aria-hidden="true" className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">$</span>
         <input
+          id={inputId}
+          name={inputId}
+          aria-describedby={`${inputId}-description`}
           type="number"
           min="0"
           max="1000000000"

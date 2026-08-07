@@ -1,4 +1,5 @@
 import { LayoutDashboard, ShoppingCart, Receipt, Settings, LogOut, DollarSign, Moon, Sun, X, Wallet } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 
@@ -18,9 +19,90 @@ const NAV_ITEMS = [
   { id: 'settings', label: 'Configuracion', icon: Settings },
 ];
 
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',');
+
 export default function Sidebar({ activeTab, onTabChange, open, onOpenChange }: SidebarProps) {
   const { user, logout } = useAuth();
   const { dark, toggle } = useTheme();
+  const mobileDialogRef = useRef<HTMLElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const desktopQuery = typeof window.matchMedia === 'function'
+      ? window.matchMedia('(min-width: 64rem)')
+      : null;
+    if (desktopQuery?.matches) {
+      onOpenChange(false);
+      return;
+    }
+    const handleViewportChange = (event: MediaQueryListEvent) => {
+      if (event.matches) onOpenChange(false);
+    };
+    desktopQuery?.addEventListener('change', handleViewportChange);
+
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    closeButtonRef.current?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onOpenChange(false);
+        return;
+      }
+
+      if (event.key !== 'Tab') return;
+
+      const dialog = mobileDialogRef.current;
+      if (!dialog) return;
+
+      const focusableElements = Array.from(
+        dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+      ).filter(element => element.getAttribute('aria-hidden') !== 'true');
+
+      if (focusableElements.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+      const activeElement = document.activeElement;
+
+      if (!dialog.contains(activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? lastElement : firstElement).focus();
+      } else if (event.shiftKey && activeElement === firstElement) {
+        event.preventDefault();
+        lastElement.focus();
+      } else if (!event.shiftKey && activeElement === lastElement) {
+        event.preventDefault();
+        firstElement.focus();
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      desktopQuery?.removeEventListener('change', handleViewportChange);
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousBodyOverflow;
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+    };
+  }, [open, onOpenChange]);
 
   function handleNav(id: string) {
     onTabChange(id);
@@ -87,11 +169,22 @@ export default function Sidebar({ activeTab, onTabChange, open, onOpenChange }: 
       {open && (
         <div className="lg:hidden fixed inset-0 z-40 bg-black/50" onClick={() => onOpenChange(false)}>
           <aside
+            ref={mobileDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Menú principal"
+            tabIndex={-1}
             className="relative w-64 max-w-[85vw] bg-white dark:bg-slate-800 flex flex-col h-full shadow-xl"
             onClick={e => e.stopPropagation()}
           >
-            <button onClick={() => onOpenChange(false)} className="absolute top-4 right-4 p-1 text-slate-400 hover:text-slate-600 z-10">
-              <X className="w-5 h-5" />
+            <button
+              ref={closeButtonRef}
+              type="button"
+              onClick={() => onOpenChange(false)}
+              className="absolute top-4 right-4 p-1 text-slate-400 hover:text-slate-600 z-10"
+              aria-label="Cerrar menú"
+            >
+              <X className="w-5 h-5" aria-hidden="true" />
             </button>
             {sidebarContent}
           </aside>

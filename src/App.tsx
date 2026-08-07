@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from './context/AuthContext';
 import { AuthProvider } from './context/AuthProvider';
 import { useToast } from './context/ToastContext';
@@ -7,16 +7,20 @@ import { ThemeProvider } from './context/ThemeProvider';
 import { exportYearExcel } from './services/export';
 import LoginPage from './components/LoginPage';
 import Sidebar from './components/Sidebar';
-import Dashboard from './components/Dashboard';
-import SalesPage from './components/SalesPage';
-import ExpensesPage from './components/ExpensesPage';
-import PricesPage from './components/PricesPage';
-import VariableExpensesPage from './components/VariableExpensesPage';
-import SettingsPage from './components/SettingsPage';
 import YearSelector from './components/YearSelector';
+import SectionErrorBoundary from './components/SectionErrorBoundary';
 import { Loader2, Menu } from 'lucide-react';
-import type { SalesEntry, Expense, PriceConfig, VariableExpense, SalesGoal } from './types';
+import type {
+  SalesEntry,
+  Expense,
+  ExpenseSnapshot,
+  FixedExpenseVersion,
+  PriceConfig,
+  VariableExpense,
+  SalesGoal,
+} from './types';
 import { EMPTY_MARGINS } from './types';
+import { upsertVariableExpenseForYear } from './domain/finance';
 import {
   getSalesForYear,
   saveSalesEntry,
@@ -32,6 +36,33 @@ import {
   getGoals,
   saveGoal,
 } from './services/firestore';
+import type { SavedExpenseResult } from './services/firestore';
+
+const Dashboard = lazy(() => import('./components/Dashboard'));
+const SalesPage = lazy(() => import('./components/SalesPage'));
+const ExpensesPage = lazy(() => import('./components/ExpensesPage'));
+const PricesPage = lazy(() => import('./components/PricesPage'));
+const VariableExpensesPage = lazy(() => import('./components/VariableExpensesPage'));
+const SettingsPage = lazy(() => import('./components/SettingsPage'));
+
+function getCurrentYearMonth(now = new Date()): string {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function mergeSavedExpense(current: Expense[], saved: SavedExpenseResult): Expense[] {
+  const existing = current.find(expense => expense.id === saved.expense.id);
+  const versions = new Map<string, FixedExpenseVersion>();
+  existing?.versions?.forEach(version => versions.set(version.effectiveFrom, version));
+  saved.writtenVersions.forEach(version => versions.set(version.effectiveFrom, version));
+
+  const merged: Expense = {
+    ...existing,
+    ...saved.expense,
+    versions: [...versions.values()].toSorted((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom)),
+  };
+  return [...current.filter(expense => expense.id !== merged.id), merged]
+    .toSorted((a, b) => a.name.localeCompare(b.name));
+}
 
 function AppContent() {
   const { user, loading: authLoading } = useAuth();
@@ -142,15 +173,13 @@ function AppContent() {
     }
   };
 
-  const handleSaveExpense = async (expense: Omit<Expense, 'id' | 'createdAt' | 'updatedAt'>, id?: string) => {
+  const handleSaveExpense = async (expense: ExpenseSnapshot, id: string, effectiveFrom: string) => {
     if (!user || !activeScope) return;
     const requestedScope = activeScope;
     try {
-      await saveExpense(user.uid, expense, id);
+      const saved = await saveExpense(user.uid, expense, id, effectiveFrom);
       if (activeScopeRef.current !== requestedScope) return;
-      const updated = await getExpenses(user.uid);
-      if (activeScopeRef.current !== requestedScope) return;
-      setExpenses(updated);
+      setExpenses(current => mergeSavedExpense(current, saved));
       toast('Gasto guardado correctamente');
     } catch (err) {
       console.error('Error saving expense:', err);
@@ -159,16 +188,14 @@ function AppContent() {
     }
   };
 
-  const handleDeleteExpense = async (id: string) => {
+  const handleDeleteExpense = async (id: string, effectiveFrom: string) => {
     if (!user || !activeScope) return;
     const requestedScope = activeScope;
     try {
-      await deleteExpense(user.uid, id);
+      const saved = await deleteExpense(user.uid, id, effectiveFrom);
       if (activeScopeRef.current !== requestedScope) return;
-      const updated = await getExpenses(user.uid);
-      if (activeScopeRef.current !== requestedScope) return;
-      setExpenses(updated);
-      toast('Gasto eliminado');
+      setExpenses(current => mergeSavedExpense(current, saved));
+      toast('Gasto desactivado desde este mes');
     } catch (err) {
       console.error('Error deleting expense:', err);
       if (activeScopeRef.current === requestedScope) toast('Error al eliminar gasto.', 'error');
@@ -176,15 +203,13 @@ function AppContent() {
     }
   };
 
-  const handleSaveVariableExpense = async (expense: Omit<VariableExpense, 'id' | 'createdAt' | 'updatedAt'>, id?: string) => {
+  const handleSaveVariableExpense = async (expense: Omit<VariableExpense, 'id' | 'createdAt' | 'updatedAt'>, id: string) => {
     if (!user || !activeScope) return;
     const requestedScope = activeScope;
     try {
-      await saveVariableExpense(user.uid, expense, id);
+      const saved = await saveVariableExpense(user.uid, expense, id);
       if (activeScopeRef.current !== requestedScope) return;
-      const updated = await getVariableExpenses(user.uid, year);
-      if (activeScopeRef.current !== requestedScope) return;
-      setVariableExpenses(updated);
+      setVariableExpenses(current => upsertVariableExpenseForYear(current, saved, year));
       toast('Gasto variable guardado');
     } catch (err) {
       console.error('Error saving variable expense:', err);
@@ -199,9 +224,7 @@ function AppContent() {
     try {
       await deleteVariableExpense(user.uid, id);
       if (activeScopeRef.current !== requestedScope) return;
-      const updated = await getVariableExpenses(user.uid, year);
-      if (activeScopeRef.current !== requestedScope) return;
-      setVariableExpenses(updated);
+      setVariableExpenses(current => current.filter(expense => expense.id !== id));
       toast('Gasto variable eliminado');
     } catch (err) {
       console.error('Error deleting variable expense:', err);
@@ -303,7 +326,15 @@ function AppContent() {
               <span className="sr-only">Cargando datos del año {year}</span>
             </div>
           ) : (
-            <>
+            <SectionErrorBoundary resetKey={`${activeTab}:${year}`}>
+              <Suspense
+                fallback={(
+                  <div role="status" aria-live="polite" className="flex items-center justify-center gap-3 py-20 text-slate-500">
+                    <Loader2 className="w-7 h-7 text-blue-600 animate-spin" />
+                    <span>Cargando sección…</span>
+                  </div>
+                )}
+              >
               {activeTab === 'dashboard' && (
                 <Dashboard sales={sales} prices={prices} expenses={expenses} variableExpenses={variableExpenses} year={year} goals={goals} />
               )}
@@ -321,7 +352,12 @@ function AppContent() {
                 />
               )}
               {activeTab === 'expenses' && (
-                <ExpensesPage expenses={expenses} onSave={handleSaveExpense} onDelete={handleDeleteExpense} />
+                <ExpensesPage
+                  expenses={expenses}
+                  effectiveMonth={getCurrentYearMonth()}
+                  onSave={handleSaveExpense}
+                  onDelete={handleDeleteExpense}
+                />
               )}
               {activeTab === 'variable-expenses' && (
                 <VariableExpensesPage expenses={variableExpenses} year={year} onSave={handleSaveVariableExpense} onDelete={handleDeleteVariableExpense} />
@@ -336,7 +372,8 @@ function AppContent() {
                   onRestoreComplete={loadData}
                 />
               )}
-            </>
+              </Suspense>
+            </SectionErrorBoundary>
           )}
         </div>
       </main>

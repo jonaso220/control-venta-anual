@@ -2,8 +2,13 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function hasAppAccess() {
+      return request.auth != null
+        && request.auth.token.get('appAccess', false) == true;
+    }
+
     function isOwner(uid) {
-      return request.auth != null && request.auth.uid == uid;
+      return hasAppAccess() && request.auth.uid == uid;
     }
 
     function hasExactFields(data, required, optional) {
@@ -117,8 +122,49 @@ service cloud.firestore {
       return hasExactFields(
           data,
           ['name', 'amount', 'dueDate', 'category', 'isActive', 'createdAt', 'updatedAt'],
+          ['notes', 'historyVersion', 'latestEffectiveFrom']
+        )
+        && isValidRequiredText(data.name, 120)
+        && isBoundedNumber(data.amount, 0.01, 1000000000000)
+        && data.dueDate is string
+        && data.dueDate.size() <= 80
+        && isValidCategory(data.category)
+        && data.isActive is bool
+        && isValidOptionalText(data, 'notes', 1000)
+        && (
+          (!('historyVersion' in data) && !('latestEffectiveFrom' in data))
+          || (
+            data.historyVersion == 1
+            && data.latestEffectiveFrom is string
+            && data.latestEffectiveFrom.matches('^(20)[0-9]{2}-(0[1-9]|1[0-2])$')
+          )
+        )
+        && isValidHistoricalTimestamp(data, 'createdAt')
+        && hasCurrentTimestamp(data, 'updatedAt');
+    }
+
+    function isValidFixedExpenseVersion(data, versionId) {
+      return hasExactFields(
+          data,
+          [
+            'expenseId',
+            'effectiveFrom',
+            'name',
+            'amount',
+            'dueDate',
+            'category',
+            'isActive',
+            'createdAt',
+            'updatedAt'
+          ],
           ['notes']
         )
+        && data.expenseId is string
+        && data.expenseId.size() > 0
+        && data.expenseId.size() <= 1400
+        && data.effectiveFrom is string
+        && data.effectiveFrom.matches('^(20)[0-9]{2}-(0[1-9]|1[0-2])$')
+        && versionId == data.expenseId + '__' + data.effectiveFrom
         && isValidRequiredText(data.name, 120)
         && isBoundedNumber(data.amount, 0.01, 1000000000000)
         && data.dueDate is string
@@ -128,6 +174,50 @@ service cloud.firestore {
         && isValidOptionalText(data, 'notes', 1000)
         && isValidHistoricalTimestamp(data, 'createdAt')
         && hasCurrentTimestamp(data, 'updatedAt');
+    }
+
+    function sameFixedExpenseSnapshot(expense, version) {
+      return expense.name == version.name
+        && expense.amount == version.amount
+        && expense.dueDate == version.dueDate
+        && expense.category == version.category
+        && expense.isActive == version.isActive
+        && expense.get('notes', null) == version.get('notes', null);
+    }
+
+    function latestFixedExpenseVersionMatches(uid, expenseId, expense) {
+      let versionId = expenseId + '__' + expense.latestEffectiveFrom;
+      let version = getAfter(
+        /databases/$(database)/documents/users/$(uid)/fixedExpenseVersions/$(versionId)
+      ).data;
+      return sameFixedExpenseSnapshot(expense, version);
+    }
+
+    function currentFixedExpenseVersionMatchesParent(uid, version) {
+      let expense = getAfter(
+        /databases/$(database)/documents/users/$(uid)/expenses/$(version.expenseId)
+      ).data;
+      return expense.historyVersion == 1
+        && expense.latestEffectiveFrom == version.effectiveFrom
+        && sameFixedExpenseSnapshot(expense, version);
+    }
+
+    function fixedExpenseVersionHasValidParent(uid, version) {
+      let expense = getAfter(
+        /databases/$(database)/documents/users/$(uid)/expenses/$(version.expenseId)
+      ).data;
+      return expense.historyVersion == 1
+        && version.effectiveFrom <= expense.latestEffectiveFrom
+        && (
+          version.effectiveFrom < expense.latestEffectiveFrom
+          || sameFixedExpenseSnapshot(expense, version)
+        );
+    }
+
+    function isCurrentYearMonth(value) {
+      return value == string(request.time.year()) + '-'
+        + (request.time.month() < 10 ? '0' : '')
+        + string(request.time.month());
     }
 
     function isValidVariableExpense(data) {
@@ -230,17 +320,47 @@ service cloud.firestore {
           == resource.data.get('createdAt', null)
         && (!('marginSnapshot' in resource.data)
           || request.resource.data.marginSnapshot == resource.data.marginSnapshot);
-      allow delete: if isOwner(uid);
+      // A sale is cleared by saving zero units. Deletion would allow an old
+      // margin snapshot to be discarded and the document recreated.
+      allow delete: if false;
     }
 
     match /users/{uid}/expenses/{expenseId} {
       allow read: if isOwner(uid);
       allow create: if isOwner(uid)
-        && isValidExpense(request.resource.data);
+        && isValidExpense(request.resource.data)
+        && request.resource.data.historyVersion == 1
+        && latestFixedExpenseVersionMatches(uid, expenseId, request.resource.data);
       allow update: if isOwner(uid)
         && isValidExpense(request.resource.data)
-        && request.resource.data.createdAt == resource.data.createdAt;
-      allow delete: if isOwner(uid);
+        && request.resource.data.historyVersion == 1
+        && request.resource.data.createdAt == resource.data.createdAt
+        && (
+          !('latestEffectiveFrom' in resource.data)
+          || request.resource.data.latestEffectiveFrom >= resource.data.latestEffectiveFrom
+        )
+        && latestFixedExpenseVersionMatches(uid, expenseId, request.resource.data);
+      allow delete: if false;
+    }
+
+    match /users/{uid}/fixedExpenseVersions/{versionId} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid)
+        && isValidFixedExpenseVersion(request.resource.data, versionId)
+        && fixedExpenseVersionHasValidParent(uid, request.resource.data);
+      allow update: if isOwner(uid)
+        && isValidFixedExpenseVersion(request.resource.data, versionId)
+        && request.resource.data.expenseId == resource.data.expenseId
+        && request.resource.data.effectiveFrom == resource.data.effectiveFrom
+        && request.resource.data.createdAt == resource.data.createdAt
+        && (
+          (
+            isCurrentYearMonth(request.resource.data.effectiveFrom)
+            && currentFixedExpenseVersionMatchesParent(uid, request.resource.data)
+          )
+          || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['updatedAt'])
+        );
+      allow delete: if false;
     }
 
     match /users/{uid}/variableExpenses/{expenseId} {
@@ -254,7 +374,9 @@ service cloud.firestore {
     }
 
     match /users/{uid}/config/{configId} {
-      allow read: if isOwner(uid) && configId.matches('^prices-(20)[0-9]{2}$');
+      // Collection reads are required by backup/restore verification. Writes
+      // remain restricted to the validated prices-YYYY document shape below.
+      allow read: if isOwner(uid);
       allow create, update: if isOwner(uid) && isValidPrices(request.resource.data, configId);
       allow delete: if isOwner(uid) && configId.matches('^prices-(20)[0-9]{2}$');
     }

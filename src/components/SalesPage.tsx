@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CircleAlert, Save, Target, TrendingDown, TrendingUp } from 'lucide-react';
 import type { Expense, SalesEntry, PriceConfig, SalesGoal, VariableExpense } from '../types';
 import { MONTHS } from '../types';
@@ -162,6 +162,7 @@ export default function SalesPage({
                   <button
                     onClick={() => startEditing(month)}
                     className="btn-secondary !py-1.5 !px-3 text-xs"
+                    aria-label={`Editar ventas de ${MONTHS[month - 1]}`}
                   >
                     Editar
                   </button>
@@ -171,20 +172,20 @@ export default function SalesPage({
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Sifones</label>
-                      <input type="number" min="0" className="input-field !py-2" value={form.sifones} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, sifones: Number(e.target.value) || 0 }))} />
+                      <label htmlFor={`sales-mobile-${year}-${month}-sifones`} className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Sifones</label>
+                      <input id={`sales-mobile-${year}-${month}-sifones`} name={`sales-mobile-${year}-${month}-sifones`} type="number" min="0" className="input-field !py-2" value={form.sifones} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, sifones: Number(e.target.value) || 0 }))} />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">6 Litros</label>
-                      <input type="number" min="0" className="input-field !py-2" value={form.litros6} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros6: Number(e.target.value) || 0 }))} />
+                      <label htmlFor={`sales-mobile-${year}-${month}-litros6`} className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">6 Litros</label>
+                      <input id={`sales-mobile-${year}-${month}-litros6`} name={`sales-mobile-${year}-${month}-litros6`} type="number" min="0" className="input-field !py-2" value={form.litros6} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros6: Number(e.target.value) || 0 }))} />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">12 Litros</label>
-                      <input type="number" min="0" className="input-field !py-2" value={form.litros12} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros12: Number(e.target.value) || 0 }))} />
+                      <label htmlFor={`sales-mobile-${year}-${month}-litros12`} className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">12 Litros</label>
+                      <input id={`sales-mobile-${year}-${month}-litros12`} name={`sales-mobile-${year}-${month}-litros12`} type="number" min="0" className="input-field !py-2" value={form.litros12} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros12: Number(e.target.value) || 0 }))} />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">20 Litros</label>
-                      <input type="number" min="0" className="input-field !py-2" value={form.litros20} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros20: Number(e.target.value) || 0 }))} />
+                      <label htmlFor={`sales-mobile-${year}-${month}-litros20`} className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">20 Litros</label>
+                      <input id={`sales-mobile-${year}-${month}-litros20`} name={`sales-mobile-${year}-${month}-litros20`} type="number" min="0" className="input-field !py-2" value={form.litros20} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros20: Number(e.target.value) || 0 }))} />
                     </div>
                   </div>
                   {!canSaveEditing && (
@@ -280,16 +281,20 @@ export default function SalesPage({
                   {isEditing ? (
                     <>
                       <td className="px-4 sm:px-6 py-2">
-                        <input type="number" min="0" className="input-field text-right !py-1.5" value={form.sifones} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, sifones: Number(e.target.value) || 0 }))} />
+                        <label htmlFor={`sales-desktop-${year}-${month}-sifones`} className="sr-only">{MONTHS[month - 1]}: Sifones</label>
+                        <input id={`sales-desktop-${year}-${month}-sifones`} name={`sales-desktop-${year}-${month}-sifones`} type="number" min="0" className="input-field text-right !py-1.5" value={form.sifones} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, sifones: Number(e.target.value) || 0 }))} />
                       </td>
                       <td className="px-4 sm:px-6 py-2">
-                        <input type="number" min="0" className="input-field text-right !py-1.5" value={form.litros6} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros6: Number(e.target.value) || 0 }))} />
+                        <label htmlFor={`sales-desktop-${year}-${month}-litros6`} className="sr-only">{MONTHS[month - 1]}: 6 Litros</label>
+                        <input id={`sales-desktop-${year}-${month}-litros6`} name={`sales-desktop-${year}-${month}-litros6`} type="number" min="0" className="input-field text-right !py-1.5" value={form.litros6} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros6: Number(e.target.value) || 0 }))} />
                       </td>
                       <td className="px-4 sm:px-6 py-2">
-                        <input type="number" min="0" className="input-field text-right !py-1.5" value={form.litros12} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros12: Number(e.target.value) || 0 }))} />
+                        <label htmlFor={`sales-desktop-${year}-${month}-litros12`} className="sr-only">{MONTHS[month - 1]}: 12 Litros</label>
+                        <input id={`sales-desktop-${year}-${month}-litros12`} name={`sales-desktop-${year}-${month}-litros12`} type="number" min="0" className="input-field text-right !py-1.5" value={form.litros12} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros12: Number(e.target.value) || 0 }))} />
                       </td>
                       <td className="px-4 sm:px-6 py-2">
-                        <input type="number" min="0" className="input-field text-right !py-1.5" value={form.litros20} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros20: Number(e.target.value) || 0 }))} />
+                        <label htmlFor={`sales-desktop-${year}-${month}-litros20`} className="sr-only">{MONTHS[month - 1]}: 20 Litros</label>
+                        <input id={`sales-desktop-${year}-${month}-litros20`} name={`sales-desktop-${year}-${month}-litros20`} type="number" min="0" className="input-field text-right !py-1.5" value={form.litros20} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros20: Number(e.target.value) || 0 }))} />
                       </td>
                       <td className="px-4 sm:px-6 py-3 text-right text-slate-400">-</td>
                       <td className="px-4 sm:px-6 py-3 text-right text-slate-400">-</td>
@@ -324,6 +329,7 @@ export default function SalesPage({
                         <button
                           onClick={() => startEditing(month)}
                           className="btn-secondary !py-1.5 !px-3 text-xs"
+                          aria-label={`Editar ventas de ${MONTHS[month - 1]}`}
                         >
                           Editar
                         </button>
@@ -366,6 +372,19 @@ function GoalsSection({ goals, year, onSaveGoal, monthlyData }: {
   const [editingMonth, setEditingMonth] = useState<number | null>(null);
   const [targetMargin, setTargetMargin] = useState(0);
   const [saving, setSaving] = useState(false);
+  const goalInputRef = useRef<HTMLInputElement>(null);
+  const editButtonRefs = useRef(new Map<number, HTMLButtonElement>());
+  const previouslyEditedMonthRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (editingMonth !== null) {
+      goalInputRef.current?.focus();
+    } else if (previouslyEditedMonthRef.current !== null) {
+      editButtonRefs.current.get(previouslyEditedMonthRef.current)?.focus();
+    }
+
+    previouslyEditedMonthRef.current = editingMonth;
+  }, [editingMonth]);
 
   function startEdit(month: number) {
     const existing = goals.find(g => g.month === month);
@@ -398,13 +417,18 @@ function GoalsSection({ goals, year, onSaveGoal, monthlyData }: {
           const target = goal ? (getGoalTargetMargin(goal) ?? 0) : 0;
           const pct = target > 0 ? Math.min((actual / target) * 100, 100) : 0;
           const isEditing = editingMonth === month;
+          const inputId = `sales-goal-${year}-${month}-target-margin`;
 
           return (
             <div key={month} className="border border-slate-200 dark:border-slate-700 rounded-lg p-3">
               <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">{name}</p>
               {isEditing ? (
                 <div className="space-y-2">
+                  <label htmlFor={inputId} className="sr-only">Meta de margen para {name}</label>
                   <input
+                    ref={goalInputRef}
+                    id={inputId}
+                    name={inputId}
                     type="number"
                     min="0"
                     className="input-field !py-1 text-sm"
@@ -417,22 +441,33 @@ function GoalsSection({ goals, year, onSaveGoal, monthlyData }: {
                     <button onClick={handleSave} disabled={saving} className="btn-primary !py-1 !px-2 text-xs">
                       {saving ? '...' : 'Guardar'}
                     </button>
-                    <button onClick={() => setEditingMonth(null)} className="btn-secondary !py-1 !px-2 text-xs">X</button>
+                    <button onClick={() => setEditingMonth(null)} className="btn-secondary !py-1 !px-2 text-xs" aria-label={`Cancelar edición de meta de ${name}`}>X</button>
                   </div>
                 </div>
               ) : (
-                <div onClick={() => startEdit(month)} className="cursor-pointer">
+                <button
+                  ref={element => {
+                    if (element) editButtonRefs.current.set(month, element);
+                    else editButtonRefs.current.delete(month);
+                  }}
+                  type="button"
+                  onClick={() => startEdit(month)}
+                  className="w-full cursor-pointer text-left"
+                  aria-label={target > 0
+                    ? `Editar meta de margen de ${name}: ${formatCurrency(actual)} de ${formatCurrency(target)}`
+                    : `Definir meta de margen de ${name}`}
+                >
                   {target > 0 ? (
                     <>
-                      <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 mb-1">
-                        <div className={`h-1.5 rounded-full ${pct >= 100 ? 'bg-green-500' : pct >= 50 ? 'bg-blue-500' : 'bg-amber-500'}`} style={{ width: `${pct}%` }} />
-                      </div>
-                      <p className="text-xs text-slate-500">{formatCurrency(actual)} / {formatCurrency(target)}</p>
+                      <span className="block w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 mb-1" aria-hidden="true">
+                        <span className={`block h-1.5 rounded-full ${pct >= 100 ? 'bg-green-500' : pct >= 50 ? 'bg-blue-500' : 'bg-amber-500'}`} style={{ width: `${pct}%` }} />
+                      </span>
+                      <span className="block text-xs text-slate-500">{formatCurrency(actual)} / {formatCurrency(target)}</span>
                     </>
                   ) : (
-                    <p className="text-xs text-slate-400 italic">Sin meta - clic para definir</p>
+                    <span className="block text-xs text-slate-400 italic">Sin meta - seleccionar para definir</span>
                   )}
-                </div>
+                </button>
               )}
             </div>
           );

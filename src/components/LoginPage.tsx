@@ -3,7 +3,7 @@ import { Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function LoginPage() {
-  const { signInWithGoogle, firebaseReady } = useAuth();
+  const { signInWithGoogle, firebaseReady, accessError } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -14,7 +14,9 @@ export default function LoginPage() {
       await signInWithGoogle();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error desconocido';
-      if (!message.includes('popup-closed-by-user')) {
+      if (message.includes('auth/user-not-allowed') || message.includes('no esta autorizada')) {
+        setError(message);
+      } else if (!message.includes('popup-closed-by-user')) {
         setError('Error al iniciar sesion. Intenta de nuevo.');
       }
     } finally {
@@ -41,9 +43,9 @@ export default function LoginPage() {
               <p className="text-xs">Crea un archivo <code className="bg-amber-100 px-1 rounded">.env</code> en la raiz del proyecto con tus credenciales de Firebase. Mira <code className="bg-amber-100 px-1 rounded">.env.example</code> como referencia.</p>
             </div>
           )}
-          {error && (
+          {(error || accessError) && (
             <div className="mb-4 bg-red-50 border border-red-200 rounded-lg px-4 py-2 text-sm text-red-700">
-              {error}
+              {error || accessError}
             </div>
           )}
           <button

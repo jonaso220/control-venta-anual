@@ -1,16 +1,17 @@
 import { useState, useMemo } from 'react';
 import { Plus, Pencil, Trash2, Save, Receipt, ArrowUpDown, ArrowUp, ArrowDown, Search } from 'lucide-react';
-import type { Expense, ExpenseCategory } from '../types';
-import { EXPENSE_CATEGORIES } from '../types';
+import type { Expense, ExpenseCategory, ExpenseSnapshot } from '../types';
+import { EXPENSE_CATEGORIES, MONTHS } from '../types';
 import { formatCurrency } from '../utils/format';
 
 interface ExpensesPageProps {
   expenses: Expense[];
-  onSave: (expense: Omit<Expense, 'id' | 'createdAt' | 'updatedAt'>, id?: string) => Promise<void>;
-  onDelete: (id: string) => Promise<void>;
+  effectiveMonth: string;
+  onSave: (expense: ExpenseSnapshot, id: string, effectiveFrom: string) => Promise<void>;
+  onDelete: (id: string, effectiveFrom: string) => Promise<void>;
 }
 
-const EMPTY_EXPENSE: Omit<Expense, 'id' | 'createdAt' | 'updatedAt'> = {
+const EMPTY_EXPENSE: ExpenseSnapshot = {
   name: '',
   amount: 0,
   dueDate: '',
@@ -22,8 +23,26 @@ const EMPTY_EXPENSE: Omit<Expense, 'id' | 'createdAt' | 'updatedAt'> = {
 type SortKey = 'name' | 'category' | 'dueDate' | 'amount' | 'isActive';
 type SortDir = 'asc' | 'desc';
 
-export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPageProps) {
+function createDraftId(): string {
+  return globalThis.crypto?.randomUUID?.()
+    ?? `expense-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function formatEffectiveMonth(value: string): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(value);
+  if (!match) return value;
+  return `${MONTHS[Number(match[2]) - 1]} de ${match[1]}`;
+}
+
+function getCurrentYearMonth(now = new Date()): string {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+export default function ExpensesPage({ expenses, effectiveMonth, onSave, onDelete }: ExpensesPageProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [saveEffectiveMonth, setSaveEffectiveMonth] = useState<string | null>(null);
+  const [deleteEffectiveMonths, setDeleteEffectiveMonths] = useState<Record<string, string>>({});
   const [isAdding, setIsAdding] = useState(false);
   const [form, setForm] = useState(EMPTY_EXPENSE);
   const [saving, setSaving] = useState(false);
@@ -78,6 +97,11 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
     return sortDir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />;
   }
 
+  function ariaSort(col: SortKey): 'ascending' | 'descending' | 'none' {
+    if (sortKey !== col) return 'none';
+    return sortDir === 'asc' ? 'ascending' : 'descending';
+  }
+
 
   function startEditing(expense: Expense) {
     setForm({
@@ -89,11 +113,15 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
       notes: expense.notes || '',
     });
     setEditingId(expense.id!);
+    setDraftId(null);
+    setSaveEffectiveMonth(null);
     setIsAdding(false);
   }
 
   function startAdding() {
     setForm(EMPTY_EXPENSE);
+    setDraftId(createDraftId());
+    setSaveEffectiveMonth(null);
     setIsAdding(true);
     setEditingId(null);
   }
@@ -101,14 +129,19 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
   function cancel() {
     setEditingId(null);
     setIsAdding(false);
+    setDraftId(null);
+    setSaveEffectiveMonth(null);
     setForm(EMPTY_EXPENSE);
   }
 
   async function handleSave() {
-    if (!form.name.trim() || form.amount <= 0) return;
+    const documentId = editingId ?? draftId;
+    if (!form.name.trim() || form.amount <= 0 || !documentId) return;
+    const operationMonth = saveEffectiveMonth ?? getCurrentYearMonth();
+    setSaveEffectiveMonth(operationMonth);
     setSaving(true);
     try {
-      await onSave(form, editingId ?? undefined);
+      await onSave(form, documentId, operationMonth);
       cancel();
     } catch {
       // Error handled by parent
@@ -119,10 +152,17 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
 
   async function handleDelete(id: string) {
     const expense = expenses.find(e => e.id === id);
-    if (!confirm(`Eliminar "${expense?.name ?? 'gasto'}"?`)) return;
+    const operationMonth = deleteEffectiveMonths[id] ?? getCurrentYearMonth();
+    if (!confirm(`¿Desactivar "${expense?.name ?? 'gasto'}" desde ${formatEffectiveMonth(operationMonth)}? Los meses anteriores se conservarán.`)) return;
+    setDeleteEffectiveMonths(current => ({ ...current, [id]: operationMonth }));
     setDeletingId(id);
     try {
-      await onDelete(id);
+      await onDelete(id, operationMonth);
+      setDeleteEffectiveMonths(current => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
     } catch {
       // Error handled by parent
     } finally {
@@ -145,6 +185,9 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
         <div>
           <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Gastos Fijos</h2>
           <p className="text-slate-500 dark:text-slate-400">Administra tus gastos mensuales</p>
+          <p className="text-xs text-slate-400 mt-1">
+            Los cambios se aplican desde {formatEffectiveMonth(saveEffectiveMonth ?? effectiveMonth)}; el historial anterior se conserva.
+          </p>
         </div>
         <div className="flex gap-3 items-center flex-wrap">
           <div className="stat-card !p-3 !flex-row !items-center !gap-3">
@@ -164,16 +207,19 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
       {/* Search and filters */}
       <div className="flex gap-2 sm:gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px] sm:max-w-xs">
+          <label htmlFor="fixed-expense-search" className="sr-only">Buscar gastos fijos</label>
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input type="text" className="input-field !pl-9" placeholder="Buscar gasto..." value={searchText} onChange={e => setSearchText(e.target.value)} />
+          <input id="fixed-expense-search" type="text" className="input-field !pl-9" placeholder="Buscar gasto..." value={searchText} onChange={e => setSearchText(e.target.value)} />
         </div>
-        <select className="input-field w-full sm:!w-auto sm:flex-none" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
+        <label htmlFor="fixed-expense-category-filter" className="sr-only">Filtrar gastos fijos por categoría</label>
+        <select id="fixed-expense-category-filter" className="input-field w-full sm:!w-auto sm:flex-none" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
           <option value="">Todas las categorias</option>
           {Object.entries(EXPENSE_CATEGORIES).map(([key, label]) => (
             <option key={key} value={key}>{label}</option>
           ))}
         </select>
-        <select className="input-field w-full sm:!w-auto sm:flex-none" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+        <label htmlFor="fixed-expense-status-filter" className="sr-only">Filtrar gastos fijos por estado</label>
+        <select id="fixed-expense-status-filter" className="input-field w-full sm:!w-auto sm:flex-none" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
           <option value="">Todos</option>
           <option value="active">Activos</option>
           <option value="inactive">Inactivos</option>
@@ -183,7 +229,7 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
       {isAdding && (
         <div className="card border-blue-200 bg-blue-50/30 dark:bg-blue-900/10 dark:border-blue-800">
           <h3 className="font-semibold text-slate-900 dark:text-slate-100 mb-4">Nuevo Gasto</h3>
-          <FormFields form={form} setForm={setForm} />
+          <FormFields idPrefix="fixed-new" form={form} setForm={setForm} />
           <div className="flex gap-2 mt-4">
             <button onClick={handleSave} disabled={saving || !form.name.trim()} className="btn-primary flex items-center gap-2">
               <Save className="w-4 h-4" />
@@ -206,7 +252,7 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
             if (isEditing) {
               return (
                 <div key={expense.id} className="card !p-4 border-blue-300 dark:border-blue-700 bg-blue-50/30 dark:bg-blue-900/10">
-                  <FormFields form={form} setForm={setForm} />
+                  <FormFields idPrefix={`fixed-mobile-${expense.id}`} form={form} setForm={setForm} />
                   <div className="flex gap-2 mt-4">
                     <button onClick={handleSave} disabled={saving || !form.name.trim()} className="btn-primary flex-1 flex items-center justify-center gap-2 !py-2">
                       <Save className="w-4 h-4" />
@@ -235,14 +281,16 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
                     <button onClick={() => startEditing(expense)} className="btn-icon" title="Editar">
                       <Pencil className="w-4 h-4" />
                     </button>
-                    <button
-                      onClick={() => handleDelete(expense.id!)}
-                      disabled={deletingId === expense.id}
-                      className="btn-icon !text-red-400 hover:!text-red-600 hover:!bg-red-50 dark:hover:!bg-red-900/30"
-                      title="Eliminar"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {expense.isActive && (
+                      <button
+                        onClick={() => handleDelete(expense.id!)}
+                        disabled={deletingId === expense.id}
+                        className="btn-icon !text-red-400 hover:!text-red-600 hover:!bg-red-50 dark:hover:!bg-red-900/30"
+                        title="Desactivar desde este mes"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="flex justify-between items-end pt-2 border-t border-slate-100 dark:border-slate-700">
@@ -277,20 +325,30 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
         <table className="w-full min-w-[900px]">
           <thead>
             <tr className="table-header">
-              <th className="px-6 py-3 cursor-pointer select-none" onClick={() => toggleSort('name')}>
-                <span className="inline-flex items-center gap-1">Nombre <SortIcon col="name" /></span>
+              <th className="px-6 py-3" aria-sort={ariaSort('name')}>
+                <button type="button" className="inline-flex items-center gap-1 select-none" onClick={() => toggleSort('name')}>
+                  Nombre <SortIcon col="name" />
+                </button>
               </th>
-              <th className="px-6 py-3 cursor-pointer select-none" onClick={() => toggleSort('category')}>
-                <span className="inline-flex items-center gap-1">Categoria <SortIcon col="category" /></span>
+              <th className="px-6 py-3" aria-sort={ariaSort('category')}>
+                <button type="button" className="inline-flex items-center gap-1 select-none" onClick={() => toggleSort('category')}>
+                  Categoria <SortIcon col="category" />
+                </button>
               </th>
-              <th className="px-6 py-3 cursor-pointer select-none" onClick={() => toggleSort('dueDate')}>
-                <span className="inline-flex items-center gap-1">Vencimiento <SortIcon col="dueDate" /></span>
+              <th className="px-6 py-3" aria-sort={ariaSort('dueDate')}>
+                <button type="button" className="inline-flex items-center gap-1 select-none" onClick={() => toggleSort('dueDate')}>
+                  Vencimiento <SortIcon col="dueDate" />
+                </button>
               </th>
-              <th className="px-6 py-3 text-right cursor-pointer select-none" onClick={() => toggleSort('amount')}>
-                <span className="inline-flex items-center gap-1 justify-end">Monto <SortIcon col="amount" /></span>
+              <th className="px-6 py-3 text-right" aria-sort={ariaSort('amount')}>
+                <button type="button" className="inline-flex items-center gap-1 justify-end select-none" onClick={() => toggleSort('amount')}>
+                  Monto <SortIcon col="amount" />
+                </button>
               </th>
-              <th className="px-6 py-3 text-center cursor-pointer select-none" onClick={() => toggleSort('isActive')}>
-                <span className="inline-flex items-center gap-1 justify-center">Estado <SortIcon col="isActive" /></span>
+              <th className="px-6 py-3 text-center" aria-sort={ariaSort('isActive')}>
+                <button type="button" className="inline-flex items-center gap-1 justify-center select-none" onClick={() => toggleSort('isActive')}>
+                  Estado <SortIcon col="isActive" />
+                </button>
               </th>
               <th className="px-6 py-3">Notas</th>
               <th className="px-6 py-3 text-center">Acciones</th>
@@ -304,7 +362,7 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
                 return (
                   <tr key={expense.id} className="bg-blue-50 dark:bg-blue-900/20">
                     <td colSpan={7} className="px-6 py-4">
-                      <FormFields form={form} setForm={setForm} />
+                      <FormFields idPrefix={`fixed-desktop-${expense.id}`} form={form} setForm={setForm} />
                       <div className="flex gap-2 mt-3">
                         <button onClick={handleSave} disabled={saving || !form.name.trim()} className="btn-primary !py-1.5 !px-3 text-xs flex items-center gap-1">
                           <Save className="w-3 h-3" />
@@ -338,14 +396,16 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
                       <button onClick={() => startEditing(expense)} className="btn-icon" title="Editar">
                         <Pencil className="w-4 h-4" />
                       </button>
-                      <button
-                        onClick={() => handleDelete(expense.id!)}
-                        disabled={deletingId === expense.id}
-                        className="btn-icon !text-red-400 hover:!text-red-600 hover:!bg-red-50 dark:hover:!bg-red-900/30"
-                        title="Eliminar"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {expense.isActive && (
+                        <button
+                          onClick={() => handleDelete(expense.id!)}
+                          disabled={deletingId === expense.id}
+                          className="btn-icon !text-red-400 hover:!text-red-600 hover:!bg-red-50 dark:hover:!bg-red-900/30"
+                          title="Desactivar desde este mes"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -372,15 +432,17 @@ export default function ExpensesPage({ expenses, onSave, onDelete }: ExpensesPag
   );
 }
 
-function FormFields({ form, setForm }: {
-  form: Omit<Expense, 'id' | 'createdAt' | 'updatedAt'>;
+function FormFields({ idPrefix, form, setForm }: {
+  idPrefix: string;
+  form: ExpenseSnapshot;
   setForm: React.Dispatch<React.SetStateAction<typeof form>>;
 }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
       <div>
-        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Nombre</label>
+        <label htmlFor={`${idPrefix}-name`} className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Nombre</label>
         <input
+          id={`${idPrefix}-name`}
           type="text"
           className="input-field"
           placeholder="Ej: Impuesto mensual"
@@ -390,8 +452,9 @@ function FormFields({ form, setForm }: {
         />
       </div>
       <div>
-        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Monto ($)</label>
+        <label htmlFor={`${idPrefix}-amount`} className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Monto ($)</label>
         <input
+          id={`${idPrefix}-amount`}
           type="number"
           min="0.01"
           max="1000000000000"
@@ -402,8 +465,9 @@ function FormFields({ form, setForm }: {
         />
       </div>
       <div>
-        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Vencimiento</label>
+        <label htmlFor={`${idPrefix}-due-date`} className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Vencimiento</label>
         <input
+          id={`${idPrefix}-due-date`}
           type="text"
           className="input-field"
           placeholder="Ej: 19 de c/mes"
@@ -413,8 +477,9 @@ function FormFields({ form, setForm }: {
         />
       </div>
       <div>
-        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Categoria</label>
+        <label htmlFor={`${idPrefix}-category`} className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Categoria</label>
         <select
+          id={`${idPrefix}-category`}
           className="input-field"
           value={form.category}
           onChange={e => setForm(f => ({ ...f, category: e.target.value as ExpenseCategory }))}
@@ -425,8 +490,9 @@ function FormFields({ form, setForm }: {
         </select>
       </div>
       <div>
-        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Estado</label>
+        <label htmlFor={`${idPrefix}-status`} className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Estado</label>
         <select
+          id={`${idPrefix}-status`}
           className="input-field"
           value={form.isActive ? 'active' : 'inactive'}
           onChange={e => setForm(f => ({ ...f, isActive: e.target.value === 'active' }))}
@@ -436,8 +502,9 @@ function FormFields({ form, setForm }: {
         </select>
       </div>
       <div>
-        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Notas</label>
+        <label htmlFor={`${idPrefix}-notes`} className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Notas</label>
         <input
+          id={`${idPrefix}-notes`}
           type="text"
           className="input-field"
           placeholder="Ej: Detalle del gasto"

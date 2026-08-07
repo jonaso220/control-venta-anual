@@ -10,10 +10,14 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "test": "npm run test:unit",
+    "test": "npm run test:unit && npm run test:ui",
     "test:unit": "tsx --test tests/*.test.ts",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-control-venta-anual-rules \"node --test --test-concurrency=1 tests/firestore.rules.test.mjs\"",
-    "check": "npm run lint && npm run test:unit && npm run build",
+    "test:ui": "vitest run",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-control-venta-anual-rules \"tsx --test --test-concurrency=1 tests/firestore.rules.test.mjs\"",
+    "firebase:recovery:doctor": "tsx scripts/firebase-recovery-doctor.ts",
+    "firebase:access": "tsx scripts/firebase-access.ts",
+    "check:bundle": "node scripts/check-build-budget.mjs",
+    "check": "npm run lint && npm test && npm run build && npm run check:bundle",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -22,12 +26,15 @@
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "recharts": "^3.8.1",
-    "xlsx": "^0.18.5"
+    "write-excel-file": "^4.1.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@firebase/rules-unit-testing": "^5.0.1",
     "@tailwindcss/vite": "^4.2.2",
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.3",
     "@types/node": "^24.12.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
@@ -35,12 +42,15 @@
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
+    "firebase-admin": "^14.2.0",
     "firebase-tools": "^15.26.0",
     "globals": "^17.4.0",
+    "jsdom": "^30.0.1",
     "tailwindcss": "^4.2.2",
     "tsx": "^4.23.11",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.57.0",
-    "vite": "^8.0.1"
+    "vite": "^8.0.1",
+    "vitest": "^4.1.10"
   }
 }

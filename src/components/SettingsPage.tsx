@@ -1,4 +1,4 @@
-import { useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import {
   CheckCircle2,
   CircleAlert,
@@ -11,6 +11,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import {
   BackupValidationError,
+  BackupRestorePartialError,
   downloadFullBackup,
   readBackupFile,
   restoreFullBackup,
@@ -25,6 +26,7 @@ interface SettingsPageProps {
 
 type BusyOperation = 'excel' | 'backup' | 'validation' | 'restore' | null;
 type StatusMessage = { kind: 'success' | 'error'; text: string } | null;
+const BACKUP_REMINDER_DAYS = 7;
 
 export default function SettingsPage({ year, onExportYearExcel, onRestoreComplete }: SettingsPageProps) {
   const { user } = useAuth();
@@ -32,8 +34,31 @@ export default function SettingsPage({ year, onExportYearExcel, onRestoreComplet
   const [busy, setBusy] = useState<BusyOperation>(null);
   const [pendingBackup, setPendingBackup] = useState<FullBackup | null>(null);
   const [status, setStatus] = useState<StatusMessage>(null);
+  const [lastBackupAt, setLastBackupAt] = useState<string | null>(null);
+  const [safetyBackupReady, setSafetyBackupReady] = useState(false);
 
   const operationInProgress = busy !== null;
+  const backupIsDue = !lastBackupAt || (
+    Date.now() - new Date(lastBackupAt).getTime()
+  ) >= BACKUP_REMINDER_DAYS * 24 * 60 * 60 * 1000;
+
+  useEffect(() => {
+    if (!user) {
+      setLastBackupAt(null);
+      return;
+    }
+    setLastBackupAt(readStoredBackupDate(user.uid));
+  }, [user]);
+
+  function rememberBackup(uid: string, downloadedAt = new Date().toISOString()): void {
+    try {
+      localStorage.setItem(backupStorageKey(uid), downloadedAt);
+    } catch {
+      // A blocked/full storage area must not turn a successful export into an
+      // application error. The reminder is only local convenience metadata.
+    }
+    setLastBackupAt(downloadedAt);
+  }
 
   async function handleYearExcel(): Promise<void> {
     setBusy('excel');
@@ -54,11 +79,13 @@ export default function SettingsPage({ year, onExportYearExcel, onRestoreComplet
     setBusy('backup');
     setStatus(null);
     setPendingBackup(null);
+    setSafetyBackupReady(false);
     try {
       const backup = await downloadFullBackup(user.uid);
+      rememberBackup(user.uid);
       setStatus({
         kind: 'success',
-        text: `Respaldo completo descargado: ${backup.counts.total} documentos leídos desde Firestore.`,
+        text: `Se generó el respaldo de ${backup.counts.total} documentos y se inició su descarga. Verifica que aparezca en Descargas.`,
       });
     } catch (error) {
       console.error('Error creating full backup:', error);
@@ -79,12 +106,14 @@ export default function SettingsPage({ year, onExportYearExcel, onRestoreComplet
     setBusy('validation');
     setStatus(null);
     setPendingBackup(null);
+    setSafetyBackupReady(false);
     try {
       if (!file.name.toLocaleLowerCase().endsWith('.json')) {
         throw new BackupValidationError('Selecciona un archivo de respaldo con extensión .json.');
       }
       const backup = await readBackupFile(file);
       setPendingBackup(backup);
+      setSafetyBackupReady(false);
     } catch (error) {
       console.error('Error validating backup:', error);
       setStatus({
@@ -103,11 +132,23 @@ export default function SettingsPage({ year, onExportYearExcel, onRestoreComplet
     setStatus(null);
 
     try {
+      if (!safetyBackupReady) {
+        const safetyBackup = await downloadFullBackup(user.uid);
+        rememberBackup(user.uid);
+        setSafetyBackupReady(true);
+        setStatus({
+          kind: 'success',
+          text: `Se generó el respaldo de seguridad de ${safetyBackup.counts.total} documentos. Verifica que aparezca en Descargas y luego pulsa “Confirmar y restaurar”.`,
+        });
+        return;
+      }
+
       const result = await restoreFullBackup(user.uid, backup);
       setPendingBackup(null);
+      setSafetyBackupReady(false);
       setStatus({
         kind: 'success',
-        text: `Restauración completada: ${result.counts.total} documentos combinados sin eliminar datos existentes.`,
+        text: `Restauración completada: se escribieron ${result.writtenDocuments} documentos y se conservaron ${result.skippedDocuments} que ya existían o eran más nuevos.`,
       });
 
       if (onRestoreComplete) {
@@ -117,7 +158,7 @@ export default function SettingsPage({ year, onExportYearExcel, onRestoreComplet
           console.error('Backup restored but UI refresh failed:', refreshError);
           setStatus({
             kind: 'success',
-            text: `Se restauraron ${result.counts.total} documentos, pero la pantalla no pudo actualizarse. Recárgala para ver los datos.`,
+            text: `Se combinaron ${result.writtenDocuments} documentos, pero la pantalla no pudo actualizarse. Recárgala para ver los datos.`,
           });
         }
       }
@@ -211,6 +252,19 @@ export default function SettingsPage({ year, onExportYearExcel, onRestoreComplet
           La restauración valida el archivo completo y combina documentos por ID. Nunca elimina los datos que ya existen.
         </p>
 
+        <div
+          role="status"
+          className={`mb-4 rounded-lg border px-3 py-2 text-sm ${
+            backupIsDue
+              ? 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200'
+              : 'border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300'
+          }`}
+        >
+          {lastBackupAt
+            ? `Última descarga registrada en este dispositivo: ${formatBackupDate(lastBackupAt)}.${backupIsDue ? ' Conviene crear un respaldo nuevo.' : ''}`
+            : 'Este dispositivo todavía no registra un respaldo. Conviene descargar uno ahora.'}
+        </div>
+
         <div className="flex gap-3 flex-wrap">
           <button
             type="button"
@@ -253,11 +307,17 @@ export default function SettingsPage({ year, onExportYearExcel, onRestoreComplet
                   Se combinarán <strong>{pendingBackup.counts.total} documentos</strong> con la cuenta{' '}
                   <strong className="break-all">{user?.email || 'actual'}</strong>. Los documentos actuales que no estén en el archivo se conservarán.
                 </p>
+                <p className="mt-2 text-xs text-amber-800 dark:text-amber-200">
+                  {safetyBackupReady
+                    ? 'El respaldo de seguridad ya fue generado. Confirma que apareció en Descargas antes de continuar.'
+                    : 'El primer paso genera el respaldo de seguridad y pausa el proceso. Ningún dato se escribe hasta que confirmes la descarga con un segundo clic.'}
+                </p>
                 <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-amber-800 dark:text-amber-200">
                   <div><dt className="inline font-medium">Creado: </dt><dd className="inline">{formatBackupDate(pendingBackup.exportedAt)}</dd></div>
                   <div><dt className="inline font-medium">Años: </dt><dd className="inline">{pendingBackup.years.join(', ') || 'sin datos anuales'}</dd></div>
                   <div><dt className="inline font-medium">Ventas: </dt><dd className="inline">{pendingBackup.counts.sales}</dd></div>
                   <div><dt className="inline font-medium">Gastos fijos: </dt><dd className="inline">{pendingBackup.counts.expenses}</dd></div>
+                  <div><dt className="inline font-medium">Versiones de gastos fijos: </dt><dd className="inline">{pendingBackup.counts.fixedExpenseVersions}</dd></div>
                   <div><dt className="inline font-medium">Gastos variables: </dt><dd className="inline">{pendingBackup.counts.variableExpenses}</dd></div>
                   <div><dt className="inline font-medium">Config./historial/metas: </dt><dd className="inline">{pendingBackup.counts.config + pendingBackup.counts.priceHistory + pendingBackup.counts.goals}</dd></div>
                 </dl>
@@ -269,11 +329,16 @@ export default function SettingsPage({ year, onExportYearExcel, onRestoreComplet
                     className="btn-primary flex items-center gap-2"
                   >
                     {busy === 'restore' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileUp className="w-4 h-4" />}
-                    {busy === 'restore' ? 'Restaurando…' : 'Sí, combinar y restaurar'}
+                    {busy === 'restore'
+                      ? safetyBackupReady ? 'Restaurando…' : 'Generando respaldo…'
+                      : safetyBackupReady ? 'Confirmar y restaurar' : 'Preparar respaldo de seguridad'}
                   </button>
                   <button
                     type="button"
-                    onClick={() => setPendingBackup(null)}
+                    onClick={() => {
+                      setPendingBackup(null);
+                      setSafetyBackupReady(false);
+                    }}
                     disabled={operationInProgress}
                     className="btn-secondary"
                   >
@@ -288,7 +353,7 @@ export default function SettingsPage({ year, onExportYearExcel, onRestoreComplet
         {status ? (
           <div
             role={status.kind === 'error' ? 'alert' : 'status'}
-            aria-live="polite"
+            aria-live={status.kind === 'error' ? 'assertive' : 'polite'}
             className={`mt-5 flex items-start gap-2 rounded-lg border p-3 text-sm ${
               status.kind === 'error'
                 ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300'
@@ -307,12 +372,33 @@ export default function SettingsPage({ year, onExportYearExcel, onRestoreComplet
 }
 
 function readableBackupError(error: unknown, fallback: string): string {
-  return error instanceof BackupValidationError ? error.message : fallback;
+  return error instanceof BackupValidationError || error instanceof BackupRestorePartialError
+    ? error.message
+    : fallback;
 }
 
 function formatBackupDate(value: string): string {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return 'fecha desconocida';
   return new Intl.DateTimeFormat('es-UY', {
     dateStyle: 'short',
     timeStyle: 'short',
-  }).format(new Date(value));
+  }).format(date);
+}
+
+function backupStorageKey(uid: string): string {
+  return `control-venta-anual:last-backup:${uid}`;
+}
+
+function readStoredBackupDate(uid: string): string | null {
+  try {
+    const value = localStorage.getItem(backupStorageKey(uid));
+    if (!value || !Number.isFinite(new Date(value).getTime())) {
+      if (value) localStorage.removeItem(backupStorageKey(uid));
+      return null;
+    }
+    return value;
+  } catch {
+    return null;
+  }
 }

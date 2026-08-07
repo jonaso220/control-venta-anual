@@ -3,9 +3,31 @@ import { EXPENSE_CATEGORIES, MONTHS } from '../types';
 import {
   buildMonthlyFinancialResults,
   calculateSalesMargin,
+  getFixedExpenseSnapshotForMonth,
   getSalesMargins,
   isValidProductAmounts,
 } from '../domain/finance';
+
+type ExportValue = string | number | boolean | Date;
+type ExportRow = Record<string, ExportValue>;
+
+function toSheetData(rows: ExportRow[], headers: string[]) {
+  return [
+    headers.map((header) => ({
+      value: header,
+      fontWeight: 'bold' as const,
+      backgroundColor: '#E2E8F0',
+      wrap: true,
+    })),
+    ...rows.map((row) => headers.map((header) => row[header])),
+  ];
+}
+
+function columnWidths(headers: string[]) {
+  return headers.map((header) => ({
+    width: Math.min(32, Math.max(12, header.length + 2)),
+  }));
+}
 
 /**
  * Generates a year-scoped analysis workbook. It is deliberately separate from
@@ -18,8 +40,7 @@ export async function exportYearExcel(
   margins: PriceConfig,
   year: number,
 ): Promise<void> {
-  const XLSX = await import('xlsx');
-  const workbook = XLSX.utils.book_new();
+  const { default: writeXlsxFile } = await import('write-excel-file/browser');
   const salesByMonth = new Map(sales.map(entry => [entry.month, entry]));
   const financialMonths = buildMonthlyFinancialResults({
     sales,
@@ -37,7 +58,6 @@ export async function exportYearExcel(
     'Gastos totales': result.totalExpenses,
     'Resultado neto': result.netResult,
   }));
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(summaryData), 'Resumen');
 
   const salesData = MONTHS.map((month, index) => {
     const entry = salesByMonth.get(index + 1);
@@ -63,17 +83,22 @@ export async function exportYearExcel(
           : 'Configuración actual (registro legado)',
     };
   });
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(salesData), 'Ventas');
 
-  const fixedData = fixedExpenses.map(expense => ({
-    Nombre: expense.name,
-    Categoría: EXPENSE_CATEGORIES[expense.category],
-    Vencimiento: expense.dueDate,
-    Monto: expense.amount,
-    Estado: expense.isActive ? 'Activo' : 'Inactivo',
-    Notas: expense.notes || '',
-  }));
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(fixedData), 'Gastos Fijos');
+  const fixedData = MONTHS.flatMap((month, monthIndex) => (
+    fixedExpenses.flatMap(expense => {
+      const snapshot = getFixedExpenseSnapshotForMonth(expense, year, monthIndex + 1);
+      if (!snapshot) return [];
+      return [{
+        Mes: month,
+        Nombre: snapshot.name,
+        Categoría: EXPENSE_CATEGORIES[snapshot.category],
+        Vencimiento: snapshot.dueDate,
+        Monto: snapshot.amount,
+        Estado: snapshot.isActive ? 'Activo' : 'Inactivo',
+        Notas: snapshot.notes || '',
+      }];
+    })
+  ));
 
   const variableData = variableExpenses.map(expense => ({
     Fecha: expense.date,
@@ -82,14 +107,35 @@ export async function exportYearExcel(
     Monto: expense.amount,
     Notas: expense.notes || '',
   }));
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(variableData), 'Gastos Variables');
-
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([{
+  const marginsData = [{
     Sifones: margins.sifones,
     '6 Litros': margins.litros6,
     '12 Litros': margins.litros12,
     '20 Litros': margins.litros20,
-  }]), 'Márgenes actuales');
+  }];
 
-  XLSX.writeFile(workbook, `informe_anual_${year}.xlsx`);
+  const sheets = [
+    { sheet: 'Resumen', rows: summaryData, headers: Object.keys(summaryData[0]) },
+    { sheet: 'Ventas', rows: salesData, headers: Object.keys(salesData[0]) },
+    {
+      sheet: 'Gastos Fijos',
+      rows: fixedData,
+      headers: ['Mes', 'Nombre', 'Categoría', 'Vencimiento', 'Monto', 'Estado', 'Notas'],
+    },
+    {
+      sheet: 'Gastos Variables',
+      rows: variableData,
+      headers: ['Fecha', 'Descripción', 'Categoría', 'Monto', 'Notas'],
+    },
+    { sheet: 'Márgenes actuales', rows: marginsData, headers: Object.keys(marginsData[0]) },
+  ];
+
+  await writeXlsxFile(
+    sheets.map(({ sheet, rows, headers }) => ({
+      sheet,
+      data: toSheetData(rows, headers),
+      columns: columnWidths(headers),
+      stickyRowsCount: 1,
+    })),
+  ).toFile(`informe_anual_${year}.xlsx`);
 }

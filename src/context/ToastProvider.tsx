@@ -26,9 +26,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const icons = {
-    success: <CheckCircle className="w-5 h-5 text-green-500 shrink-0" />,
-    error: <XCircle className="w-5 h-5 text-red-500 shrink-0" />,
-    info: <Info className="w-5 h-5 text-blue-500 shrink-0" />,
+    success: <CheckCircle className="w-5 h-5 text-green-500 shrink-0" aria-hidden="true" />,
+    error: <XCircle className="w-5 h-5 text-red-500 shrink-0" aria-hidden="true" />,
+    info: <Info className="w-5 h-5 text-blue-500 shrink-0" aria-hidden="true" />,
   };
 
   const bgColors = {
@@ -44,6 +44,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map(item => (
           <div
             key={item.id}
+            role={item.type === 'error' ? 'alert' : 'status'}
+            aria-live={item.type === 'error' ? 'assertive' : 'polite'}
+            aria-atomic="true"
             className={`flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg animate-slide-in ${bgColors[item.type]}`}
           >
             {icons[item.type]}

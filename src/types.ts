@@ -20,14 +20,31 @@ export interface PriceConfig extends ProductAmounts {
   updatedAt?: Date;
 }
 
-export interface Expense {
-  id?: string;
+export interface ExpenseSnapshot {
   name: string;
   amount: number;
   dueDate: string; // e.g., "19 DE C/MES", "MENSUAL", "8 SEMANAL"
   category: ExpenseCategory;
   isActive: boolean;
   notes?: string;
+}
+
+export interface FixedExpenseVersion extends ExpenseSnapshot {
+  id?: string;
+  expenseId: string;
+  effectiveFrom: string; // YYYY-MM
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface Expense extends ExpenseSnapshot {
+  id?: string;
+  /** Marca que el gasto se calcula mediante snapshots mensuales. */
+  historyVersion?: 1;
+  /** Mes de la versión más reciente, en formato YYYY-MM. */
+  latestEffectiveFrom?: string;
+  /** Se adjunta al leer Firestore; no se persiste dentro del documento principal. */
+  versions?: FixedExpenseVersion[];
   createdAt?: Date;
   updatedAt?: Date;
 }

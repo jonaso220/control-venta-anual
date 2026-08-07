@@ -10,24 +10,37 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 
-export const BACKUP_SCHEMA_VERSION = 1 as const;
+export const BACKUP_SCHEMA_VERSION = 2 as const;
 export const BACKUP_APP_ID = 'control-venta-anual' as const;
+const LEGACY_BACKUP_SCHEMA_VERSION = 1 as const;
 
-const MAX_BACKUP_FILE_BYTES = 25 * 1024 * 1024;
+const MAX_BACKUP_FILE_MEGABYTES = 100;
+const MAX_BACKUP_FILE_BYTES = MAX_BACKUP_FILE_MEGABYTES * 1024 * 1024;
 const MAX_BACKUP_DOCUMENTS = 50_000;
 const MAX_VALUE_DEPTH = 20;
 const RESTORE_BATCH_SIZE = 400;
 const COLLECTIONS_WITH_UPDATED_AT = new Set<BackupCollectionName>([
   'sales',
   'expenses',
+  'fixedExpenseVersions',
   'variableExpenses',
   'config',
   'goals',
 ]);
 
+const LEGACY_BACKUP_COLLECTIONS = [
+  'sales',
+  'expenses',
+  'variableExpenses',
+  'config',
+  'priceHistory',
+  'goals',
+] as const;
+
 const BACKUP_COLLECTIONS = [
   'sales',
   'expenses',
+  'fixedExpenseVersions',
   'variableExpenses',
   'config',
   'priceHistory',
@@ -69,6 +82,8 @@ export interface FullBackup {
 export interface RestoreResult {
   restoredAt: string;
   counts: BackupCollectionCounts;
+  writtenDocuments: number;
+  skippedDocuments: number;
 }
 
 export class BackupValidationError extends Error {
@@ -78,11 +93,31 @@ export class BackupValidationError extends Error {
   }
 }
 
+export class BackupRestorePartialError extends Error {
+  readonly writtenDocuments: number;
+
+  constructor(writtenDocuments: number, cause: unknown) {
+    super(
+      `La restauracion se interrumpio despues de combinar ${writtenDocuments} documentos. `
+      + 'No se borro ningun dato; vuelve a intentar el mismo archivo para completar los lotes pendientes.',
+      { cause },
+    );
+    this.name = 'BackupRestorePartialError';
+    this.writtenDocuments = writtenDocuments;
+  }
+}
+
 function getDb(): Firestore {
   if (!db) {
     throw new Error('Firebase no esta configurado. Agrega las variables de entorno.');
   }
   return db;
+}
+
+function isPermissionDenied(error: unknown): boolean {
+  if (!error || typeof error !== 'object' || !('code' in error)) return false;
+  const code = String((error as { code: unknown }).code);
+  return code === 'permission-denied' || code === 'firestore/permission-denied';
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -187,6 +222,7 @@ function calculateCounts(collections: FullBackup['collections']): BackupCollecti
   const counts = {
     sales: collections.sales.length,
     expenses: collections.expenses.length,
+    fixedExpenseVersions: collections.fixedExpenseVersions.length,
     variableExpenses: collections.variableExpenses.length,
     config: collections.config.length,
     priceHistory: collections.priceHistory.length,
@@ -212,6 +248,17 @@ function deriveYears(collections: FullBackup['collections']): number[] {
     if (typeof date === 'string' && /^\d{4}-/.test(date)) years.add(Number(date.slice(0, 4)));
   }
 
+  for (const record of collections.fixedExpenseVersions) {
+    const effectiveFrom = record.data.effectiveFrom;
+    if (
+      typeof effectiveFrom === 'string'
+      && effectiveFrom !== '2000-01'
+      && /^\d{4}-/.test(effectiveFrom)
+    ) {
+      years.add(Number(effectiveFrom.slice(0, 4)));
+    }
+  }
+
   for (const record of collections.config) {
     const match = /^prices-(\d{4})$/.exec(record.id);
     if (match) years.add(Number(match[1]));
@@ -225,13 +272,23 @@ export async function createFullBackup(uid: string): Promise<FullBackup> {
   assertUid(uid, 'UID actual');
   const database = getDb();
   const snapshots = await Promise.all(
-    BACKUP_COLLECTIONS.map((name) => getDocsFromServer(collection(database, 'users', uid, name))),
+    BACKUP_COLLECTIONS.map(async name => {
+      try {
+        return await getDocsFromServer(collection(database, 'users', uid, name));
+      } catch (error) {
+        // During the coordinated rollout, the previous rules do not know the
+        // new history collection yet. Legacy expenses can still be backed up
+        // and are normalized to a baseline version by validateFullBackup().
+        if (name === 'fixedExpenseVersions' && isPermissionDenied(error)) return null;
+        throw error;
+      }
+    }),
   );
 
   const collections = Object.fromEntries(
     snapshots.map((snapshot, index) => {
       const collectionName = BACKUP_COLLECTIONS[index];
-      const records = snapshot.docs
+      const records = (snapshot?.docs ?? [])
         .map((snapshotDoc) => normalizeDocument(collectionName, snapshotDoc.id, snapshotDoc.data()))
         .toSorted((a, b) => a.id.localeCompare(b.id));
       return [collectionName, records];
@@ -253,6 +310,11 @@ export async function createFullBackup(uid: string): Promise<FullBackup> {
 export async function downloadFullBackup(uid: string): Promise<FullBackup> {
   const backup = await createFullBackup(uid);
   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8' });
+  if (blob.size > MAX_BACKUP_FILE_BYTES) {
+    throw new BackupValidationError(
+      `El respaldo supera el limite de ${MAX_BACKUP_FILE_MEGABYTES} MB y no se puede descargar como un unico archivo.`,
+    );
+  }
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   const timestamp = backup.exportedAt.replaceAll(':', '-').replace(/\.\d{3}Z$/, 'Z');
@@ -268,7 +330,7 @@ export async function downloadFullBackup(uid: string): Promise<FullBackup> {
 export async function readBackupFile(file: File): Promise<FullBackup> {
   if (file.size === 0) throw new BackupValidationError('El archivo esta vacio.');
   if (file.size > MAX_BACKUP_FILE_BYTES) {
-    throw new BackupValidationError('El archivo supera el limite de 25 MB.');
+    throw new BackupValidationError(`El archivo supera el limite de ${MAX_BACKUP_FILE_MEGABYTES} MB.`);
   }
 
   let parsed: unknown;
@@ -287,21 +349,29 @@ export function validateFullBackup(value: unknown): FullBackup {
   assertOnlyKeys(root, rootKeys, 'Respaldo');
   assertRequiredKeys(root, rootKeys, 'Respaldo');
 
-  if (root.schemaVersion !== BACKUP_SCHEMA_VERSION) {
-    throw new BackupValidationError(`Version de respaldo no compatible: se esperaba ${BACKUP_SCHEMA_VERSION}.`);
+  if (
+    root.schemaVersion !== BACKUP_SCHEMA_VERSION
+    && root.schemaVersion !== LEGACY_BACKUP_SCHEMA_VERSION
+  ) {
+    throw new BackupValidationError(
+      `Version de respaldo no compatible: se esperaba ${LEGACY_BACKUP_SCHEMA_VERSION} o ${BACKUP_SCHEMA_VERSION}.`,
+    );
   }
   if (root.app !== BACKUP_APP_ID) {
     throw new BackupValidationError('El archivo no pertenece a Control Venta Anual.');
   }
   assertIsoTimestamp(root.exportedAt, 'Respaldo.exportedAt');
 
+  const sourceCollections = root.schemaVersion === LEGACY_BACKUP_SCHEMA_VERSION
+    ? LEGACY_BACKUP_COLLECTIONS
+    : BACKUP_COLLECTIONS;
   const rawCollections = assertObject(root.collections, 'Respaldo.collections');
-  assertOnlyKeys(rawCollections, [...BACKUP_COLLECTIONS], 'Respaldo.collections');
-  assertRequiredKeys(rawCollections, [...BACKUP_COLLECTIONS], 'Respaldo.collections');
-  const collections = {} as FullBackup['collections'];
-  let documentCount = 0;
-
-  for (const collectionName of BACKUP_COLLECTIONS) {
+  assertOnlyKeys(rawCollections, [...sourceCollections], 'Respaldo.collections');
+  assertRequiredKeys(rawCollections, [...sourceCollections], 'Respaldo.collections');
+  const collections = Object.fromEntries(
+    BACKUP_COLLECTIONS.map(collectionName => [collectionName, []]),
+  ) as unknown as FullBackup['collections'];
+  for (const collectionName of sourceCollections) {
     const rawRecords = rawCollections[collectionName];
     if (!Array.isArray(rawRecords)) {
       throw new BackupValidationError(`Respaldo.collections.${collectionName} debe ser una lista.`);
@@ -317,17 +387,18 @@ export function validateFullBackup(value: unknown): FullBackup {
       ids.add(record.id);
       return record;
     });
-    documentCount += rawRecords.length;
-  }
-
-  if (documentCount > MAX_BACKUP_DOCUMENTS) {
-    throw new BackupValidationError(`El respaldo supera el limite de ${MAX_BACKUP_DOCUMENTS} documentos.`);
   }
 
   backfillLegacySalesMarginSnapshots(collections);
+  const sourceExpectedCounts = calculateCounts(collections);
+  validateCounts(root.counts, sourceExpectedCounts, sourceCollections);
+  backfillLegacyFixedExpenseVersions(collections);
+  validateFixedExpenseHistoryConsistency(collections);
 
   const expectedCounts = calculateCounts(collections);
-  validateCounts(root.counts, expectedCounts);
+  if (expectedCounts.total > MAX_BACKUP_DOCUMENTS) {
+    throw new BackupValidationError(`El respaldo supera el limite de ${MAX_BACKUP_DOCUMENTS} documentos.`);
+  }
 
   if (!Array.isArray(root.years)) throw new BackupValidationError('Respaldo.years debe ser una lista.');
   const years = root.years.map((year, index) => {
@@ -378,6 +449,97 @@ function backfillLegacySalesMarginSnapshots(collections: FullBackup['collections
       ...record.data,
       marginSnapshot: { ...fallbackMargins },
     };
+  }
+}
+
+function backfillLegacyFixedExpenseVersions(collections: FullBackup['collections']): void {
+  const versionedExpenseIds = new Set(
+    collections.fixedExpenseVersions.map(version => version.data.expenseId as string),
+  );
+
+  for (const expense of collections.expenses) {
+    if (expense.data.historyVersion !== undefined || versionedExpenseIds.has(expense.id)) continue;
+    const effectiveFrom = '2000-01';
+    const versionId = `${expense.id}__${effectiveFrom}`;
+    assertDocumentId(versionId, `fixedExpenseVersions/${versionId}.id`);
+    const versionData: BackupObject = {
+      expenseId: expense.id,
+      effectiveFrom,
+      name: expense.data.name,
+      amount: expense.data.amount,
+      dueDate: expense.data.dueDate,
+      category: expense.data.category,
+      isActive: expense.data.isActive,
+      ...(expense.data.notes !== undefined ? { notes: expense.data.notes } : {}),
+      createdAt: expense.data.createdAt,
+      updatedAt: expense.data.updatedAt,
+    };
+    collections.fixedExpenseVersions.push({
+      id: versionId,
+      data: versionData,
+      timestampPaths: ['/createdAt', '/updatedAt'],
+    });
+    expense.data = {
+      ...expense.data,
+      historyVersion: 1,
+      latestEffectiveFrom: effectiveFrom,
+    };
+  }
+
+  collections.fixedExpenseVersions.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function validateFixedExpenseHistoryConsistency(collections: FullBackup['collections']): void {
+  const expensesById = new Map(collections.expenses.map(record => [record.id, record]));
+  const versionsByExpense = new Map<string, BackupRecord[]>();
+
+  for (const version of collections.fixedExpenseVersions) {
+    const expenseId = version.data.expenseId as string;
+    const expense = expensesById.get(expenseId);
+    if (!expense) {
+      throw new BackupValidationError(
+        `fixedExpenseVersions/${version.id} referencia el gasto inexistente expenses/${expenseId}.`,
+      );
+    }
+    if (expense.data.historyVersion !== 1) {
+      throw new BackupValidationError(
+        `expenses/${expenseId} debe declarar historyVersion 1 porque tiene versiones.`,
+      );
+    }
+    const versions = versionsByExpense.get(expenseId) ?? [];
+    versions.push(version);
+    versionsByExpense.set(expenseId, versions);
+  }
+
+  for (const expense of collections.expenses) {
+    const versions = versionsByExpense.get(expense.id) ?? [];
+    if (expense.data.historyVersion !== 1) {
+      if (versions.length > 0) {
+        throw new BackupValidationError(`expenses/${expense.id} tiene versiones sin activar su historial.`);
+      }
+      continue;
+    }
+    if (versions.length === 0) {
+      throw new BackupValidationError(`expenses/${expense.id} declara historial pero no contiene versiones.`);
+    }
+    const latestVersion = versions
+      .toSorted((a, b) => (
+        (a.data.effectiveFrom as string).localeCompare(b.data.effectiveFrom as string)
+      ))
+      .at(-1);
+    if (expense.data.latestEffectiveFrom !== latestVersion?.data.effectiveFrom) {
+      throw new BackupValidationError(
+        `expenses/${expense.id}.latestEffectiveFrom no coincide con su última versión.`,
+      );
+    }
+    const snapshotFields = ['name', 'amount', 'dueDate', 'category', 'isActive', 'notes'] as const;
+    if (snapshotFields.some(field => (
+      expense.data[field] !== latestVersion?.data[field]
+    ))) {
+      throw new BackupValidationError(
+        `expenses/${expense.id} no coincide con el contenido de su última versión.`,
+      );
+    }
   }
 }
 
@@ -463,7 +625,42 @@ function validateCollectionData(
       validateTimestampFields(data, timestampPaths, ['updatedAt'], ['createdAt'], context);
       break;
     case 'expenses':
-      assertOnlyKeys(data, ['name', 'amount', 'dueDate', 'category', 'isActive', 'notes', 'createdAt', 'updatedAt'], `${context}.data`);
+      assertOnlyKeys(data, [
+        'name', 'amount', 'dueDate', 'category', 'isActive', 'notes',
+        'historyVersion', 'latestEffectiveFrom', 'createdAt', 'updatedAt',
+      ], `${context}.data`);
+      assertRequiredText(data.name, `${context}.data.name`, 120);
+      assertBoundedNumber(data.amount, `${context}.data.amount`, Number.MIN_VALUE, 1_000_000_000_000);
+      assertShortString(data.dueDate, `${context}.data.dueDate`, 80);
+      assertCategory(data.category, `${context}.data.category`);
+      if (typeof data.isActive !== 'boolean') throw new BackupValidationError(`${context}.data.isActive debe ser booleano.`);
+      if (data.notes !== undefined) assertShortString(data.notes, `${context}.data.notes`, 1_000);
+      if (data.historyVersion === undefined && data.latestEffectiveFrom !== undefined) {
+        throw new BackupValidationError(`${context}.data.latestEffectiveFrom requiere historyVersion.`);
+      }
+      if (data.historyVersion !== undefined) {
+        if (data.historyVersion !== 1) {
+          throw new BackupValidationError(`${context}.data.historyVersion debe ser 1.`);
+        }
+        assertYearMonth(data.latestEffectiveFrom, `${context}.data.latestEffectiveFrom`);
+      }
+      validateTimestampFields(data, timestampPaths, ['createdAt', 'updatedAt'], [], context);
+      break;
+    case 'fixedExpenseVersions':
+      assertOnlyKeys(data, [
+        'expenseId', 'effectiveFrom', 'name', 'amount', 'dueDate', 'category',
+        'isActive', 'notes', 'createdAt', 'updatedAt',
+      ], `${context}.data`);
+      assertDocumentId(data.expenseId, `${context}.data.expenseId`);
+      if (data.expenseId.length > 1_400) {
+        throw new BackupValidationError(`${context}.data.expenseId supera 1400 caracteres.`);
+      }
+      assertYearMonth(data.effectiveFrom, `${context}.data.effectiveFrom`);
+      if (id !== `${data.expenseId}__${data.effectiveFrom}`) {
+        throw new BackupValidationError(
+          `${context}.id debe coincidir con expenseId__effectiveFrom.`,
+        );
+      }
       assertRequiredText(data.name, `${context}.data.name`, 120);
       assertBoundedNumber(data.amount, `${context}.data.amount`, Number.MIN_VALUE, 1_000_000_000_000);
       assertShortString(data.dueDate, `${context}.data.dueDate`, 80);
@@ -599,41 +796,280 @@ function restoreValue(value: BackupValue, path: string, timestampPaths: Readonly
   return value;
 }
 
+interface PlannedRestoreWrite {
+  collectionName: BackupCollectionName;
+  record: BackupRecord;
+  existingData?: DocumentData;
+}
+
+const FIXED_SNAPSHOT_FIELDS = [
+  'name',
+  'amount',
+  'dueDate',
+  'category',
+  'isActive',
+  'notes',
+] as const;
+
+function sameFixedSnapshot(
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+): boolean {
+  return FIXED_SNAPSHOT_FIELDS.every(field => left[field] === right[field]);
+}
+
+function sameBackupValue(left: BackupValue | undefined, right: BackupValue | undefined): boolean {
+  if (left === right) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left)
+      && Array.isArray(right)
+      && left.length === right.length
+      && left.every((value, index) => sameBackupValue(value, right[index]));
+  }
+  if (isBackupObject(left as BackupValue) || isBackupObject(right as BackupValue)) {
+    if (!isBackupObject(left as BackupValue) || !isBackupObject(right as BackupValue)) return false;
+    const leftKeys = Object.keys(left as BackupObject).toSorted();
+    const rightKeys = Object.keys(right as BackupObject).toSorted();
+    return leftKeys.length === rightKeys.length
+      && leftKeys.every((key, index) => (
+        key === rightKeys[index]
+        && sameBackupValue((left as BackupObject)[key], (right as BackupObject)[key])
+      ));
+  }
+  return false;
+}
+
+function sameImmutableBackupRecord(existing: DocumentData, record: BackupRecord): boolean {
+  const normalizedExisting = normalizeDocument('priceHistory', record.id, existing);
+  return sameBackupValue(normalizedExisting.data, record.data)
+    && normalizedExisting.timestampPaths.length === record.timestampPaths.length
+    && normalizedExisting.timestampPaths.every((path, index) => path === record.timestampPaths[index]);
+}
+
+function restoredDocumentData(write: PlannedRestoreWrite): DocumentData {
+  const restoredData = restoreValue(
+    write.record.data,
+    '',
+    new Set(write.record.timestampPaths),
+  ) as DocumentData;
+  if (write.existingData !== undefined) {
+    if (write.existingData.createdAt !== undefined) {
+      restoredData.createdAt = write.existingData.createdAt;
+    } else {
+      // Update rules require createdAt to remain exactly as stored, including
+      // legacy documents where the field is absent.
+      delete restoredData.createdAt;
+    }
+  }
+  if (COLLECTIONS_WITH_UPDATED_AT.has(write.collectionName)) {
+    restoredData.updatedAt = serverTimestamp();
+  }
+  return restoredData;
+}
+
+function addRestoreWrite(
+  batch: ReturnType<typeof writeBatch>,
+  database: Firestore,
+  uid: string,
+  write: PlannedRestoreWrite,
+): void {
+  batch.set(
+    doc(database, 'users', uid, write.collectionName, write.record.id),
+    restoredDocumentData(write),
+    { merge: true },
+  );
+}
+
 /**
  * Existing documents are merged, missing documents are created, and documents absent from
  * the file are never deleted. The caller must visibly confirm the currently authenticated target.
  */
 export async function restoreFullBackup(uid: string, input: unknown): Promise<RestoreResult> {
+  return restoreFullBackupToFirestore(getDb(), uid, input);
+}
+
+/** @internal Exported so the complete restore path can be exercised against the Firestore emulator. */
+export async function restoreFullBackupToFirestore(
+  database: Firestore,
+  uid: string,
+  input: unknown,
+): Promise<RestoreResult> {
   assertUid(uid, 'UID actual');
   const backup = validateFullBackup(input);
-  const database = getDb();
-  const writes = BACKUP_COLLECTIONS.flatMap((collectionName) => (
-    backup.collections[collectionName].map((record) => ({ collectionName, record }))
-  ));
+  const existingSnapshots = await Promise.all(
+    BACKUP_COLLECTIONS.map(collectionName => (
+      getDocsFromServer(collection(database, 'users', uid, collectionName))
+    )),
+  );
+  const existingByCollection = new Map<BackupCollectionName, Map<string, DocumentData>>(
+    BACKUP_COLLECTIONS.map((collectionName, index) => [
+      collectionName,
+      new Map(existingSnapshots[index].docs.map(snapshotDoc => [snapshotDoc.id, snapshotDoc.data()])),
+    ]),
+  );
+  const existingExpenses = existingByCollection.get('expenses')!;
+  const existingVersions = existingByCollection.get('fixedExpenseVersions')!;
 
-  for (let index = 0; index < writes.length; index += RESTORE_BATCH_SIZE) {
-    const batch = writeBatch(database);
-    for (const { collectionName, record } of writes.slice(index, index + RESTORE_BATCH_SIZE)) {
-      const restoredData = restoreValue(record.data, '', new Set(record.timestampPaths)) as DocumentData;
-      if (COLLECTIONS_WITH_UPDATED_AT.has(collectionName)) {
-        restoredData.updatedAt = serverTimestamp();
+  const missingVersions = new Map<string, PlannedRestoreWrite>();
+  for (const record of backup.collections.fixedExpenseVersions) {
+    const existing = existingVersions.get(record.id);
+    if (existing) {
+      if (
+        existing.expenseId !== record.data.expenseId
+        || existing.effectiveFrom !== record.data.effectiveFrom
+        || !sameFixedSnapshot(existing, record.data)
+      ) {
+        throw new BackupValidationError(
+          `La version fija ${record.id} ya existe con otro contenido. No se modifico ningun dato.`,
+        );
       }
-      batch.set(doc(database, 'users', uid, collectionName, record.id), restoredData, { merge: true });
+      continue;
     }
-    await batch.commit();
+    missingVersions.set(record.id, { collectionName: 'fixedExpenseVersions', record });
+  }
+
+  const expenseGroups: Array<{
+    expense: PlannedRestoreWrite;
+    missingVersions: PlannedRestoreWrite[];
+  }> = [];
+  let skippedDocuments = backup.collections.fixedExpenseVersions.length - missingVersions.size;
+
+  for (const record of backup.collections.expenses) {
+    const existing = existingExpenses.get(record.id);
+    const backupLatest = record.data.latestEffectiveFrom as string;
+    if (existing?.historyVersion === 1) {
+      const existingLatest = existing.latestEffectiveFrom;
+      if (typeof existingLatest !== 'string') {
+        throw new BackupValidationError(
+          `El gasto fijo ${record.id} tiene metadatos incompletos en Firestore. No se modifico ningun dato.`,
+        );
+      }
+      if (backupLatest < existingLatest) {
+        skippedDocuments += 1;
+        continue;
+      }
+      if (backupLatest === existingLatest) {
+        if (!sameFixedSnapshot(existing, record.data)) {
+          throw new BackupValidationError(
+            `El gasto fijo ${record.id} ya existe con otro contenido para ${backupLatest}. No se modifico ningun dato.`,
+          );
+        }
+        skippedDocuments += 1;
+        continue;
+      }
+    }
+
+    if (existing && existing.createdAt === undefined) {
+      throw new BackupValidationError(
+        `El gasto fijo ${record.id} no tiene createdAt y no puede combinarse de forma segura. No se modifico ningun dato.`,
+      );
+    }
+
+    const expenseVersions = [...missingVersions.values()]
+      .filter(write => write.record.data.expenseId === record.id);
+    if (expenseVersions.length > RESTORE_BATCH_SIZE - 1) {
+      throw new BackupValidationError(
+        `El gasto fijo ${record.id} tiene demasiadas versiones para restaurarlo atomicamente. No se modifico ningun dato.`,
+      );
+    }
+    expenseVersions.forEach(write => missingVersions.delete(write.record.id));
+    expenseGroups.push({
+      expense: { collectionName: 'expenses', record, ...(existing ? { existingData: existing } : {}) },
+      missingVersions: expenseVersions,
+    });
+  }
+
+  const otherWrites: PlannedRestoreWrite[] = [];
+  for (const collectionName of BACKUP_COLLECTIONS) {
+    if (collectionName === 'expenses' || collectionName === 'fixedExpenseVersions') continue;
+    const existingDocuments = existingByCollection.get(collectionName)!;
+    for (const record of backup.collections[collectionName]) {
+      const existing = existingDocuments.get(record.id);
+
+      if (collectionName === 'priceHistory' && existing) {
+        if (!sameImmutableBackupRecord(existing, record)) {
+          throw new BackupValidationError(
+            `El historial de precios ${record.id} ya existe con otro contenido. No se modifico ningun dato.`,
+          );
+        }
+        skippedDocuments += 1;
+        continue;
+      }
+
+      if (collectionName === 'sales' && existing?.marginSnapshot !== undefined) {
+        const normalizedExisting = normalizeDocument(collectionName, record.id, existing);
+        if (!sameBackupValue(normalizedExisting.data.marginSnapshot, record.data.marginSnapshot)) {
+          throw new BackupValidationError(
+            `La venta ${record.id} ya existe con otro margen historico. No se modifico ningun dato.`,
+          );
+        }
+      }
+
+      if (collectionName === 'variableExpenses' && existing && existing.createdAt === undefined) {
+        throw new BackupValidationError(
+          `El gasto variable ${record.id} no tiene createdAt y no puede combinarse de forma segura. No se modifico ningun dato.`,
+        );
+      }
+
+      otherWrites.push({
+        collectionName,
+        record,
+        ...(existing ? { existingData: existing } : {}),
+      });
+    }
+  }
+
+  let writtenDocuments = 0;
+  try {
+    // A fixed expense and all of its missing snapshots are committed together,
+    // so a network interruption never exposes a newly restored parent with an
+    // incomplete history.
+    for (const group of expenseGroups) {
+      const batch = writeBatch(database);
+      addRestoreWrite(batch, database, uid, group.expense);
+      group.missingVersions.forEach(write => addRestoreWrite(batch, database, uid, write));
+      await batch.commit();
+      writtenDocuments += 1 + group.missingVersions.length;
+    }
+
+    const historicalVersions = [...missingVersions.values()];
+    for (let index = 0; index < historicalVersions.length; index += 10) {
+      const batch = writeBatch(database);
+      const writes = historicalVersions.slice(index, index + 10);
+      writes.forEach(write => addRestoreWrite(batch, database, uid, write));
+      await batch.commit();
+      writtenDocuments += writes.length;
+    }
+
+    for (let index = 0; index < otherWrites.length; index += RESTORE_BATCH_SIZE) {
+      const batch = writeBatch(database);
+      const writes = otherWrites.slice(index, index + RESTORE_BATCH_SIZE);
+      writes.forEach(write => addRestoreWrite(batch, database, uid, write));
+      await batch.commit();
+      writtenDocuments += writes.length;
+    }
+  } catch (error) {
+    throw new BackupRestorePartialError(writtenDocuments, error);
   }
 
   return {
     restoredAt: new Date().toISOString(),
     counts: backup.counts,
+    writtenDocuments,
+    skippedDocuments,
   };
 }
 
-function validateCounts(value: unknown, expected: BackupCollectionCounts): void {
+function validateCounts(
+  value: unknown,
+  expected: BackupCollectionCounts,
+  collectionNames: readonly BackupCollectionName[] = BACKUP_COLLECTIONS,
+): void {
   const counts = assertObject(value, 'Respaldo.counts');
-  assertOnlyKeys(counts, [...BACKUP_COLLECTIONS, 'total'], 'Respaldo.counts');
-  assertRequiredKeys(counts, [...BACKUP_COLLECTIONS, 'total'], 'Respaldo.counts');
-  for (const key of [...BACKUP_COLLECTIONS, 'total'] as const) {
+  const keys = [...collectionNames, 'total'] as const;
+  assertOnlyKeys(counts, keys, 'Respaldo.counts');
+  assertRequiredKeys(counts, keys, 'Respaldo.counts');
+  for (const key of keys) {
     if (!Number.isInteger(counts[key]) || (counts[key] as number) < 0) {
       throw new BackupValidationError(`Respaldo.counts.${key} debe ser un entero no negativo.`);
     }
@@ -691,6 +1127,12 @@ function assertYear(value: unknown, context: string): asserts value is number {
 function assertMonth(value: unknown, context: string): asserts value is number {
   if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > 12) {
     throw new BackupValidationError(`${context} debe ser un mes entre 1 y 12.`);
+  }
+}
+
+function assertYearMonth(value: unknown, context: string): asserts value is string {
+  if (typeof value !== 'string' || !/^20\d{2}-(0[1-9]|1[0-2])$/.test(value)) {
+    throw new BackupValidationError(`${context} debe usar el formato AAAA-MM entre 2000 y 2099.`);
   }
 }
 

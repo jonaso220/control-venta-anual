@@ -1,17 +1,19 @@
-import { useMemo } from 'react';
-import { TrendingUp, TrendingDown, DollarSign, ShoppingCart, Receipt, BarChart3, PieChart as PieIcon } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend, PieChart, Pie, Cell } from 'recharts';
+import { lazy, Suspense, useMemo } from 'react';
+import { TrendingUp, TrendingDown, DollarSign, ShoppingCart, Receipt, BarChart3 } from 'lucide-react';
 import type { SalesEntry, PriceConfig, Expense, SalesGoal, VariableExpense } from '../types';
 import { MONTHS, EXPENSE_CATEGORIES } from '../types';
 import {
   buildMonthlyFinancialResults,
-  calculateFixedMonthlyExpenses,
-  getElapsedMonthCount,
+  getAnnualProjectionPeriod,
+  getFixedExpenseSnapshotForMonth,
   getGoalTargetMargin,
   projectAnnualTotals,
   sumFinancialResults,
 } from '../domain/finance';
 import { formatCurrency } from '../utils/format';
+import SectionErrorBoundary from './SectionErrorBoundary';
+
+const DashboardCharts = lazy(() => import('./DashboardCharts'));
 
 interface DashboardProps {
   sales: SalesEntry[];
@@ -32,10 +34,6 @@ const PIE_COLORS: Record<string, string> = {
 };
 
 export default function Dashboard({ sales, prices, expenses, variableExpenses, year, goals }: DashboardProps) {
-  const totalExpensesMonthly = useMemo(() => {
-    return calculateFixedMonthlyExpenses(expenses);
-  }, [expenses]);
-
   const financialMonths = useMemo(() => buildMonthlyFinancialResults({
     sales,
     margins: prices,
@@ -57,7 +55,8 @@ export default function Dashboard({ sales, prices, expenses, variableExpenses, y
     totalUnidades: result.totalUnits,
   })), [financialMonths]);
 
-  const elapsedMonths = getElapsedMonthCount(year);
+  const projectionPeriod = getAnnualProjectionPeriod(year);
+  const elapsedMonths = projectionPeriod.elapsedMonths;
   const chartData = monthlyData.slice(0, elapsedMonths);
 
   const totals = useMemo(() => {
@@ -65,15 +64,19 @@ export default function Dashboard({ sales, prices, expenses, variableExpenses, y
   }, [financialMonths, elapsedMonths]);
 
   const annualProjection = useMemo(() => {
-    return projectAnnualTotals(totals, elapsedMonths, totalExpensesMonthly);
-  }, [totals, elapsedMonths, totalExpensesMonthly]);
+    const annualFixedExpenses = financialMonths.reduce((total, month) => total + month.fixedExpenses, 0);
+    return projectAnnualTotals(totals, projectionPeriod.equivalentMonths, annualFixedExpenses);
+  }, [totals, projectionPeriod.equivalentMonths, financialMonths]);
 
   const expensesByCategory = useMemo(() => {
     const grouped: Record<string, number> = {};
 
     expenses.forEach(expense => {
-      if (!expense.isActive || !Number.isFinite(expense.amount) || expense.amount < 0) return;
-      grouped[expense.category] = (grouped[expense.category] || 0) + expense.amount * elapsedMonths;
+      for (let month = 1; month <= elapsedMonths; month += 1) {
+        const snapshot = getFixedExpenseSnapshotForMonth(expense, year, month);
+        if (!snapshot?.isActive || !Number.isFinite(snapshot.amount) || snapshot.amount < 0) continue;
+        grouped[snapshot.category] = (grouped[snapshot.category] || 0) + snapshot.amount;
+      }
     });
 
     variableExpenses.forEach(expense => {
@@ -98,12 +101,18 @@ export default function Dashboard({ sales, prices, expenses, variableExpenses, y
   }, [expenses, variableExpenses, elapsedMonths, year]);
 
   const isProfit = totals.netResult >= 0;
-  const projectionLabel = elapsedMonths === 12 ? 'Total anual' : 'Proyección anual';
+  const projectionLabel = projectionPeriod.isCurrentYearPartial
+    ? `Proyección anual (incluye ${MONTHS[elapsedMonths - 1]} parcial)`
+    : elapsedMonths === 12
+      ? 'Total anual'
+      : 'Proyección anual';
   const periodLabel = elapsedMonths === 0
     ? 'El año seleccionado aún no comenzó'
-    : elapsedMonths === 12
-      ? `Cierre del año ${year}`
-      : `Acumulado hasta ${MONTHS[elapsedMonths - 1]} de ${year}`;
+    : projectionPeriod.isCurrentYearPartial
+      ? `Acumulado hasta hoy (${MONTHS[elapsedMonths - 1]} parcial) de ${year}`
+      : elapsedMonths === 12
+        ? `Cierre del año ${year}`
+        : `Acumulado hasta ${MONTHS[elapsedMonths - 1]} de ${year}`;
 
   return (
     <div className="space-y-6">
@@ -164,107 +173,11 @@ export default function Dashboard({ sales, prices, expenses, variableExpenses, y
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="card">
-          <div className="flex items-center gap-2 mb-4">
-            <BarChart3 className="w-5 h-5 text-slate-400" />
-            <h3 className="font-semibold text-slate-900 dark:text-slate-100">Margen bruto vs gastos</h3>
-          </div>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="#94a3b8" />
-                <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" />
-                <Tooltip
-                  formatter={(value) => formatCurrency(Number(value))}
-                  contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
-                />
-                <Legend />
-                <Bar dataKey="margenBruto" name="Margen bruto" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="gastos" name="Gastos" fill="#ef4444" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="flex items-center gap-2 mb-4">
-            <TrendingUp className="w-5 h-5 text-slate-400" />
-            <h3 className="font-semibold text-slate-900 dark:text-slate-100">Resultado mensual</h3>
-          </div>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="#94a3b8" />
-                <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" />
-                <Tooltip
-                  formatter={(value) => formatCurrency(Number(value))}
-                  contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
-                />
-                <Line type="monotone" dataKey="resultado" name="Resultado neto" stroke="#10b981" strokeWidth={2} dot={{ fill: '#10b981' }} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="card">
-          <div className="flex items-center gap-2 mb-4">
-            <ShoppingCart className="w-5 h-5 text-slate-400" />
-            <h3 className="font-semibold text-slate-900 dark:text-slate-100">Ventas por Producto</h3>
-          </div>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="#94a3b8" />
-                <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" />
-                <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }} />
-                <Legend />
-                <Bar dataKey="sifones" name="Sifones" fill="#6366f1" radius={[2, 2, 0, 0]} />
-                <Bar dataKey="litros6" name="6 Litros" fill="#0ea5e9" radius={[2, 2, 0, 0]} />
-                <Bar dataKey="litros12" name="12 Litros" fill="#f59e0b" radius={[2, 2, 0, 0]} />
-                <Bar dataKey="litros20" name="20 Litros" fill="#10b981" radius={[2, 2, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="flex items-center gap-2 mb-4">
-            <PieIcon className="w-5 h-5 text-slate-400" />
-            <h3 className="font-semibold text-slate-900 dark:text-slate-100">Gastos acumulados por categoría</h3>
-          </div>
-          <div className="h-72">
-            {expensesByCategory.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={expensesByCategory}
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={100}
-                    dataKey="value"
-                    label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
-                  >
-                    {expensesByCategory.map((entry, index) => (
-                      <Cell key={index} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-full text-slate-400">
-                No hay gastos activos
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+      <SectionErrorBoundary resetKey={`${year}:${chartData.length}`} message="No se pudieron cargar los gráficos.">
+        <Suspense fallback={<DashboardChartsFallback />}>
+          <DashboardCharts chartData={chartData} expensesByCategory={expensesByCategory} />
+        </Suspense>
+      </SectionErrorBoundary>
       {/* Goals Progress */}
       {goals.length > 0 && (
         <div className="card">
@@ -299,6 +212,17 @@ export default function Dashboard({ sales, prices, expenses, variableExpenses, y
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function DashboardChartsFallback() {
+  return (
+    <div role="status" aria-live="polite" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {Array.from({ length: 4 }, (_, index) => (
+        <div key={index} className="card h-[336px] animate-pulse bg-slate-100 dark:bg-slate-800" />
+      ))}
+      <span className="sr-only">Cargando gráficos…</span>
     </div>
   );
 }

@@ -5,6 +5,7 @@ export interface AuthContextType {
   user: User | null;
   loading: boolean;
   firebaseReady: boolean;
+  accessError: string | null;
   signInWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
 }

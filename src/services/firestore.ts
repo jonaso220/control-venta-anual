@@ -4,7 +4,6 @@ import {
   getDocs,
   getDoc,
   setDoc,
-  updateDoc,
   deleteDoc,
   query,
   runTransaction,
@@ -14,7 +13,15 @@ import {
   type Firestore,
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import type { SalesEntry, Expense, PriceConfig, VariableExpense, SalesGoal } from '../types';
+import type {
+  SalesEntry,
+  Expense,
+  ExpenseSnapshot,
+  FixedExpenseVersion,
+  PriceConfig,
+  VariableExpense,
+  SalesGoal,
+} from '../types';
 import { EMPTY_MARGINS } from '../types';
 import {
   copyProductAmounts,
@@ -34,13 +41,11 @@ function userCollection(uid: string, name: string) {
 
 // Sales
 export async function getSalesForYear(uid: string, year: number): Promise<SalesEntry[]> {
-  const q = query(
-    userCollection(uid, 'sales'),
-    where('year', '==', year),
-    orderBy('month', 'asc')
-  );
+  const q = query(userCollection(uid, 'sales'), where('year', '==', year));
   const snapshot = await getDocs(q);
-  return snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as SalesEntry));
+  return snapshot.docs
+    .map((d) => ({ id: d.id, ...d.data() } as SalesEntry))
+    .toSorted((a, b) => a.month - b.month);
 }
 
 export async function saveSalesEntry(uid: string, entry: SalesEntry): Promise<SalesEntry> {
@@ -93,31 +98,240 @@ export async function saveSalesEntry(uid: string, entry: SalesEntry): Promise<Sa
 }
 
 // Expenses
-export async function getExpenses(uid: string): Promise<Expense[]> {
-  const snapshot = await getDocs(userCollection(uid, 'expenses'));
-  return snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as Expense));
+function isPermissionDenied(error: unknown): boolean {
+  if (!error || typeof error !== 'object' || !('code' in error)) return false;
+  const code = String((error as { code: unknown }).code);
+  return code === 'permission-denied' || code === 'firestore/permission-denied';
 }
 
-export async function saveExpense(uid: string, expense: Omit<Expense, 'id' | 'createdAt' | 'updatedAt'>, id?: string): Promise<string> {
-  if (id) {
-    await updateDoc(doc(userCollection(uid, 'expenses'), id), {
-      ...expense,
-      updatedAt: serverTimestamp(),
+const FIXED_EXPENSE_SNAPSHOT_FIELDS = [
+  'name',
+  'amount',
+  'dueDate',
+  'category',
+  'isActive',
+  'notes',
+] as const;
+
+function sameFixedExpenseSnapshot(
+  expense: ExpenseSnapshot,
+  version: FixedExpenseVersion,
+): boolean {
+  return FIXED_EXPENSE_SNAPSHOT_FIELDS.every(field => expense[field] === version[field]);
+}
+
+export function canUseLegacyExpenseFallback(expenses: readonly Expense[]): boolean {
+  return expenses.every(expense => expense.historyVersion !== 1);
+}
+
+export function isExpenseHistorySnapshotConsistent(
+  expenses: readonly Expense[],
+  versionsByExpense: ReadonlyMap<string, readonly FixedExpenseVersion[]>,
+): boolean {
+  const expenseIds = new Set(expenses.flatMap(expense => expense.id ? [expense.id] : []));
+  if ([...versionsByExpense.keys()].some(expenseId => !expenseIds.has(expenseId))) return false;
+
+  return expenses.every(expense => {
+    if (!expense.id) return false;
+    const versions = versionsByExpense.get(expense.id) ?? [];
+    if (expense.historyVersion !== 1) return versions.length === 0;
+    if (!expense.latestEffectiveFrom || versions.length === 0) return false;
+
+    const latestVersion = versions.toSorted((a, b) => (
+      a.effectiveFrom.localeCompare(b.effectiveFrom)
+    )).at(-1);
+
+    return latestVersion?.effectiveFrom === expense.latestEffectiveFrom
+      && sameFixedExpenseSnapshot(expense, latestVersion);
+  });
+}
+
+async function loadExpenses(uid: string, retryOnMixedSnapshot: boolean): Promise<Expense[]> {
+  const expensesPromise = getDocs(userCollection(uid, 'expenses'));
+  const versionsPromise = getDocs(userCollection(uid, 'fixedExpenseVersions'))
+    .then(snapshot => ({ snapshot, available: true as const }))
+    .catch(error => {
+      // Compatibility for the short rollout window in which the new client is
+      // already live but the previous rules still deny the new collection.
+      if (isPermissionDenied(error)) return { snapshot: null, available: false as const };
+      throw error;
     });
-    return id;
-  } else {
-    const docRef = doc(userCollection(uid, 'expenses'));
-    await setDoc(docRef, {
+  const [expensesSnapshot, versionsResult] = await Promise.all([
+    expensesPromise,
+    versionsPromise,
+  ]);
+  const versionsByExpense = new Map<string, FixedExpenseVersion[]>();
+
+  versionsResult.snapshot?.docs.forEach(versionDoc => {
+    const version = { id: versionDoc.id, ...versionDoc.data() } as FixedExpenseVersion;
+    const versions = versionsByExpense.get(version.expenseId) ?? [];
+    versions.push(version);
+    versionsByExpense.set(version.expenseId, versions);
+  });
+
+  const expenses = expensesSnapshot.docs.map(expenseDoc => {
+    const expense = { id: expenseDoc.id, ...expenseDoc.data() } as Expense;
+    const versions = versionsByExpense.get(expenseDoc.id);
+    return {
       ...expense,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-    return docRef.id;
+      ...(versions ? { versions: versions.toSorted((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom)) } : {}),
+    };
+  });
+
+  if (!versionsResult.available) {
+    if (canUseLegacyExpenseFallback(expenses)) return expenses;
+    throw new Error(
+      'No se pudo verificar el historial de gastos fijos migrados. Reintenta cuando las reglas estén actualizadas.',
+    );
+  }
+
+  if (!isExpenseHistorySnapshotConsistent(expenses, versionsByExpense)) {
+    if (retryOnMixedSnapshot) return loadExpenses(uid, false);
+    throw new Error('No se pudo leer un historial de gastos fijos consistente. Reintenta.');
+  }
+
+  return expenses;
+}
+
+export async function getExpenses(uid: string): Promise<Expense[]> {
+  return loadExpenses(uid, true);
+}
+
+const LEGACY_EXPENSE_EFFECTIVE_FROM = '2000-01';
+
+export interface SavedExpenseResult {
+  expense: Expense;
+  writtenVersions: FixedExpenseVersion[];
+}
+
+function assertValidYearMonth(value: string): void {
+  if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(value)) {
+    throw new Error('El mes efectivo del gasto no es válido.');
   }
 }
 
-export async function deleteExpense(uid: string, expenseId: string): Promise<void> {
-  await deleteDoc(doc(userCollection(uid, 'expenses'), expenseId));
+function expenseSnapshot(expense: ExpenseSnapshot): ExpenseSnapshot {
+  return {
+    name: expense.name,
+    amount: expense.amount,
+    dueDate: expense.dueDate,
+    category: expense.category,
+    isActive: expense.isActive,
+    ...(expense.notes !== undefined ? { notes: expense.notes } : {}),
+  };
+}
+
+function versionData(
+  expenseId: string,
+  effectiveFrom: string,
+  expense: ExpenseSnapshot,
+): Omit<FixedExpenseVersion, 'id' | 'createdAt' | 'updatedAt'> {
+  return {
+    expenseId,
+    effectiveFrom,
+    ...expenseSnapshot(expense),
+  };
+}
+
+async function persistExpense(
+  uid: string,
+  expenseId: string,
+  effectiveFrom: string,
+  resolveExpense: (existing: Expense | undefined) => ExpenseSnapshot,
+): Promise<SavedExpenseResult> {
+  assertValidYearMonth(effectiveFrom);
+  if (!expenseId) throw new Error('El gasto necesita un identificador estable.');
+
+  const d = getDb();
+  const expenseRef = doc(d, 'users', uid, 'expenses', expenseId);
+  const versionRef = doc(d, 'users', uid, 'fixedExpenseVersions', `${expenseId}__${effectiveFrom}`);
+  const baselineRef = doc(
+    d,
+    'users',
+    uid,
+    'fixedExpenseVersions',
+    `${expenseId}__${LEGACY_EXPENSE_EFFECTIVE_FROM}`,
+  );
+
+  return runTransaction(d, async transaction => {
+    const existingSnapshot = await transaction.get(expenseRef);
+    const existing = existingSnapshot.exists()
+      ? ({ id: existingSnapshot.id, ...existingSnapshot.data() } as Expense)
+      : undefined;
+    const nextExpense = expenseSnapshot(resolveExpense(existing));
+
+    if (
+      existing?.historyVersion === 1 &&
+      existing.latestEffectiveFrom &&
+      effectiveFrom < existing.latestEffectiveFrom
+    ) {
+      throw new Error('No se puede guardar una versión anterior a la última registrada.');
+    }
+
+    // Firestore exige completar todas las lecturas antes de empezar a escribir.
+    const currentVersionSnapshot = await transaction.get(versionRef);
+    const needsLegacyBaseline = Boolean(existing && existing.historyVersion !== 1);
+    const baselineSnapshot = needsLegacyBaseline && baselineRef.path !== versionRef.path
+      ? await transaction.get(baselineRef)
+      : null;
+
+    const writtenVersions: FixedExpenseVersion[] = [];
+    if (existing && needsLegacyBaseline && baselineSnapshot && !baselineSnapshot.exists()) {
+      const baseline = versionData(expenseId, LEGACY_EXPENSE_EFFECTIVE_FROM, existing);
+      transaction.set(baselineRef, {
+        ...baseline,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      writtenVersions.push({ id: baselineRef.id, ...baseline });
+    }
+
+    const currentVersion = versionData(expenseId, effectiveFrom, nextExpense);
+    transaction.set(versionRef, {
+      ...currentVersion,
+      ...(!currentVersionSnapshot.exists() ? { createdAt: serverTimestamp() } : {}),
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+    transaction.set(expenseRef, {
+      ...nextExpense,
+      historyVersion: 1,
+      latestEffectiveFrom: effectiveFrom,
+      ...(!existingSnapshot.exists() ? { createdAt: serverTimestamp() } : {}),
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+    writtenVersions.push({ id: versionRef.id, ...currentVersion });
+
+    return {
+      expense: {
+        id: expenseId,
+        ...nextExpense,
+        historyVersion: 1,
+        latestEffectiveFrom: effectiveFrom,
+      },
+      writtenVersions,
+    };
+  });
+}
+
+export async function saveExpense(
+  uid: string,
+  expense: ExpenseSnapshot,
+  id: string,
+  effectiveFrom: string,
+): Promise<SavedExpenseResult> {
+  return persistExpense(uid, id, effectiveFrom, () => expense);
+}
+
+/** Conserva los meses anteriores y registra una versión inactiva desde ahora. */
+export async function deleteExpense(
+  uid: string,
+  expenseId: string,
+  effectiveFrom: string,
+): Promise<SavedExpenseResult> {
+  return persistExpense(uid, expenseId, effectiveFrom, existing => {
+    if (!existing) throw new Error('El gasto que intentas desactivar ya no existe.');
+    return { ...expenseSnapshot(existing), isActive: false };
+  });
 }
 
 // Prices (per year)
@@ -204,22 +418,24 @@ export async function getVariableExpenses(uid: string, year: number): Promise<Va
   return snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as VariableExpense));
 }
 
-export async function saveVariableExpense(uid: string, expense: Omit<VariableExpense, 'id' | 'createdAt' | 'updatedAt'>, id?: string): Promise<string> {
-  if (id) {
-    await updateDoc(doc(userCollection(uid, 'variableExpenses'), id), {
+export async function saveVariableExpense(
+  uid: string,
+  expense: Omit<VariableExpense, 'id' | 'createdAt' | 'updatedAt'>,
+  id: string,
+): Promise<VariableExpense> {
+  if (!id) throw new Error('El gasto variable necesita un identificador estable.');
+  const d = getDb();
+  const expenseRef = doc(d, 'users', uid, 'variableExpenses', id);
+
+  return runTransaction(d, async transaction => {
+    const existingSnapshot = await transaction.get(expenseRef);
+    transaction.set(expenseRef, {
       ...expense,
+      ...(!existingSnapshot.exists() ? { createdAt: serverTimestamp() } : {}),
       updatedAt: serverTimestamp(),
-    });
-    return id;
-  } else {
-    const docRef = doc(userCollection(uid, 'variableExpenses'));
-    await setDoc(docRef, {
-      ...expense,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-    return docRef.id;
-  }
+    }, { merge: true });
+    return { id, ...expense };
+  });
 }
 
 export async function deleteVariableExpense(uid: string, id: string): Promise<void> {
@@ -228,24 +444,30 @@ export async function deleteVariableExpense(uid: string, id: string): Promise<vo
 
 // Price History
 export async function getPriceHistory(uid: string, year: number): Promise<Array<PriceConfig & { changedAt: Date }>> {
-  const q = query(
-    userCollection(uid, 'priceHistory'),
-    where('year', '==', year),
-    orderBy('changedAt', 'desc')
-  );
+  const q = query(userCollection(uid, 'priceHistory'), where('year', '==', year));
   const snapshot = await getDocs(q);
-  return snapshot.docs.map((d) => d.data() as PriceConfig & { changedAt: Date });
+  const toMillis = (value: unknown): number => {
+    if (value instanceof Date) return value.getTime();
+    if (value && typeof value === 'object' && 'toMillis' in value) {
+      return (value as { toMillis: () => number }).toMillis();
+    }
+    if (value && typeof value === 'object' && 'seconds' in value) {
+      return Number((value as { seconds: number }).seconds) * 1000;
+    }
+    return 0;
+  };
+  return snapshot.docs
+    .map((d) => d.data() as PriceConfig & { changedAt: Date })
+    .toSorted((a, b) => toMillis(b.changedAt) - toMillis(a.changedAt));
 }
 
 // Sales Goals
 export async function getGoals(uid: string, year: number): Promise<SalesGoal[]> {
-  const q = query(
-    userCollection(uid, 'goals'),
-    where('year', '==', year),
-    orderBy('month', 'asc')
-  );
+  const q = query(userCollection(uid, 'goals'), where('year', '==', year));
   const snapshot = await getDocs(q);
-  return snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as SalesGoal));
+  return snapshot.docs
+    .map((d) => ({ id: d.id, ...d.data() } as SalesGoal))
+    .toSorted((a, b) => a.month - b.month);
 }
 
 export async function saveGoal(uid: string, goal: Omit<SalesGoal, 'id' | 'createdAt' | 'updatedAt'>): Promise<void> {

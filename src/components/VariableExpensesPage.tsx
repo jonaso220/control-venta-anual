@@ -7,7 +7,7 @@ import { formatCurrency } from '../utils/format';
 interface VariableExpensesPageProps {
   expenses: VariableExpense[];
   year: number;
-  onSave: (expense: Omit<VariableExpense, 'id' | 'createdAt' | 'updatedAt'>, id?: string) => Promise<void>;
+  onSave: (expense: Omit<VariableExpense, 'id' | 'createdAt' | 'updatedAt'>, id: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }
 
@@ -28,8 +28,14 @@ const categoryColors: Record<ExpenseCategory, string> = {
   otros: 'bg-slate-100 text-slate-700 dark:bg-slate-600 dark:text-slate-200',
 };
 
+function createDraftId(): string {
+  return globalThis.crypto?.randomUUID?.()
+    ?? `variable-expense-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export default function VariableExpensesPage({ expenses, year, onSave, onDelete }: VariableExpensesPageProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [draftId, setDraftId] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
@@ -67,11 +73,13 @@ export default function VariableExpensesPage({ expenses, year, onSave, onDelete 
       notes: exp.notes || '',
     });
     setEditingId(exp.id!);
+    setDraftId(null);
     setIsAdding(false);
   }
 
   function startAdding() {
     setForm({ ...EMPTY, date: `${year}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}` });
+    setDraftId(createDraftId());
     setIsAdding(true);
     setEditingId(null);
   }
@@ -79,14 +87,16 @@ export default function VariableExpensesPage({ expenses, year, onSave, onDelete 
   function cancel() {
     setEditingId(null);
     setIsAdding(false);
+    setDraftId(null);
     setForm(EMPTY);
   }
 
   async function handleSave() {
-    if (!form.description.trim() || form.amount <= 0) return;
+    const documentId = editingId ?? draftId;
+    if (!form.description.trim() || form.amount <= 0 || !documentId) return;
     setSaving(true);
     try {
-      await onSave(form, editingId ?? undefined);
+      await onSave(form, documentId);
       cancel();
     } catch {
       // handled by parent
@@ -138,8 +148,10 @@ export default function VariableExpensesPage({ expenses, year, onSave, onDelete 
       {/* Filters */}
       <div className="flex gap-2 sm:gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px] sm:max-w-xs">
+          <label htmlFor="variable-expense-search" className="sr-only">Buscar gastos variables</label>
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
+            id="variable-expense-search"
             type="text"
             className="input-field !pl-9"
             placeholder="Buscar..."
@@ -147,7 +159,9 @@ export default function VariableExpensesPage({ expenses, year, onSave, onDelete 
             onChange={e => setSearchText(e.target.value)}
           />
         </div>
+        <label htmlFor="variable-expense-month-filter" className="sr-only">Filtrar gastos variables por mes</label>
         <select
+          id="variable-expense-month-filter"
           className="input-field w-full sm:!w-auto sm:flex-none"
           value={filterMonth ?? ''}
           onChange={e => setFilterMonth(e.target.value ? Number(e.target.value) : null)}
@@ -162,7 +176,7 @@ export default function VariableExpensesPage({ expenses, year, onSave, onDelete 
       {isAdding && (
         <div className="card border-blue-200 bg-blue-50/30 dark:bg-blue-900/10 dark:border-blue-800">
           <h3 className="font-semibold text-slate-900 dark:text-slate-100 mb-4">Nuevo Gasto Variable</h3>
-          <FormFields form={form} setForm={setForm} />
+          <FormFields idPrefix="variable-new" form={form} setForm={setForm} />
           <div className="flex gap-2 mt-4">
             <button onClick={handleSave} disabled={saving || !form.description.trim()} className="btn-primary flex items-center gap-2">
               <Save className="w-4 h-4" />
@@ -185,7 +199,7 @@ export default function VariableExpensesPage({ expenses, year, onSave, onDelete 
             if (isEditing) {
               return (
                 <div key={exp.id} className="card !p-4 border-blue-300 dark:border-blue-700 bg-blue-50/30 dark:bg-blue-900/10">
-                  <FormFields form={form} setForm={setForm} />
+                  <FormFields idPrefix={`variable-mobile-${exp.id}`} form={form} setForm={setForm} />
                   <div className="flex gap-2 mt-4">
                     <button onClick={handleSave} disabled={saving || !form.description.trim()} className="btn-primary flex-1 flex items-center justify-center gap-2 !py-2">
                       <Save className="w-4 h-4" />
@@ -263,7 +277,7 @@ export default function VariableExpensesPage({ expenses, year, onSave, onDelete 
                 return (
                   <tr key={exp.id} className="bg-blue-50 dark:bg-blue-900/20">
                     <td colSpan={6} className="px-6 py-4">
-                      <FormFields form={form} setForm={setForm} />
+                      <FormFields idPrefix={`variable-desktop-${exp.id}`} form={form} setForm={setForm} />
                       <div className="flex gap-2 mt-3">
                         <button onClick={handleSave} disabled={saving || !form.description.trim()} className="btn-primary !py-1.5 !px-3 text-xs flex items-center gap-1">
                           <Save className="w-3 h-3" />
@@ -328,15 +342,17 @@ export default function VariableExpensesPage({ expenses, year, onSave, onDelete 
   );
 }
 
-function FormFields({ form, setForm }: {
+function FormFields({ idPrefix, form, setForm }: {
+  idPrefix: string;
   form: Omit<VariableExpense, 'id' | 'createdAt' | 'updatedAt'>;
   setForm: React.Dispatch<React.SetStateAction<typeof form>>;
 }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
       <div>
-        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Fecha</label>
+        <label htmlFor={`${idPrefix}-date`} className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Fecha</label>
         <input
+          id={`${idPrefix}-date`}
           type="date"
           className="input-field"
           value={form.date}
@@ -344,8 +360,9 @@ function FormFields({ form, setForm }: {
         />
       </div>
       <div>
-        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Descripcion</label>
+        <label htmlFor={`${idPrefix}-description`} className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Descripcion</label>
         <input
+          id={`${idPrefix}-description`}
           type="text"
           className="input-field"
           placeholder="Ej: Reparacion motor"
@@ -355,8 +372,9 @@ function FormFields({ form, setForm }: {
         />
       </div>
       <div>
-        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Monto ($)</label>
+        <label htmlFor={`${idPrefix}-amount`} className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Monto ($)</label>
         <input
+          id={`${idPrefix}-amount`}
           type="number"
           min="0.01"
           max="1000000000000"
@@ -368,8 +386,9 @@ function FormFields({ form, setForm }: {
         />
       </div>
       <div>
-        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Categoria</label>
+        <label htmlFor={`${idPrefix}-category`} className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Categoria</label>
         <select
+          id={`${idPrefix}-category`}
           className="input-field"
           value={form.category}
           onChange={e => setForm(f => ({ ...f, category: e.target.value as ExpenseCategory }))}
@@ -380,8 +399,9 @@ function FormFields({ form, setForm }: {
         </select>
       </div>
       <div>
-        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Notas</label>
+        <label htmlFor={`${idPrefix}-notes`} className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Notas</label>
         <input
+          id={`${idPrefix}-notes`}
           type="text"
           className="input-field"
           placeholder="Opcional"
