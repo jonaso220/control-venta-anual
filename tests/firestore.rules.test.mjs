@@ -363,9 +363,10 @@ test('el snapshot de margen queda inmutable despues de la primera escritura', as
 
 test('gastos fijos valida campos, rangos y conserva createdAt al actualizar', async () => {
   const db = dbFor('alice');
+  const currentMonth = new Date().toISOString().slice(0, 7);
   const ref = doc(db, 'users/alice/expenses/fixed-1');
 
-  await assertSucceeds(setVersionedExpense(db, 'fixed-1'));
+  await assertSucceeds(setVersionedExpense(db, 'fixed-1', currentMonth));
   await assertSucceeds(setVersionedExpense(db, 'restored', '2026-08', {
     createdAt: new Date('2024-01-01T00:00:00Z'),
   }));
@@ -377,7 +378,7 @@ test('gastos fijos valida campos, rangos y conserva createdAt al actualizar', as
   }));
   const updateBatch = writeBatch(db);
   updateBatch.update(ref, { amount: 1300, createdAt: created, updatedAt: serverTimestamp() });
-  updateBatch.update(doc(db, 'users/alice/fixedExpenseVersions/fixed-1__2026-08'), {
+  updateBatch.update(doc(db, `users/alice/fixedExpenseVersions/fixed-1__${currentMonth}`), {
     amount: 1300,
     updatedAt: serverTimestamp(),
   });
@@ -745,4 +746,78 @@ test('documentos padre, colecciones desconocidas y rutas anidadas quedan denegad
 
 test('la prueba realmente lee las reglas cerradas configuradas', () => {
   assert.match(RULES, /allow read, write: if false/);
+});
+
+test('vigencias: se conservan tarifas y fechas, y se rechazan precios inválidos', async () => {
+  const db = dbFor('alice');
+  const ref = doc(db, 'users/alice/config/prices-2026');
+  const tariff = { effectiveFrom: '2026-10-12', margins: marginSnapshot(), publicPrices: { sifones: 100, litros6: 100, litros12: 100, litros20: 100 } };
+  await assertSucceeds(setDoc(ref, { ...marginSnapshot(), tariffs: [tariff], updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(ref, { tariffs: [{ ...tariff, margins: { ...marginSnapshot(), sifones: 999 } }], updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(ref, { tariffs: [], updatedAt: serverTimestamp() }));
+  await assertFails(deleteDoc(ref));
+  await assertFails(setDoc(doc(db, 'users/alice/config/prices-2025'), { ...marginSnapshot(), tariffs: [tariff], updatedAt: serverTimestamp() }));
+});
+
+test('desglose mensual conserva snapshots, totales y aislamiento por usuario', async () => {
+  const { monthPeriods, sumUnits } = await import('../src/domain/pricing.ts');
+  const db = dbFor('alice');
+  const priceRef = doc(db, 'users/alice/config/prices-2026');
+  const saleRef = doc(db, 'users/alice/sales/2026-10');
+  const amounts = n => ({ sifones: n, litros6: n, litros12: n, litros20: n });
+  const prices = { ...amounts(2), tariffs: [
+    { effectiveFrom: '2026-01-01', margins: amounts(2), publicPrices: amounts(10) },
+    { effectiveFrom: '2026-10-12', margins: amounts(3), publicPrices: amounts(12) },
+  ] };
+  await assertSucceeds(setDoc(priceRef, { ...prices, tariffs: prices.tariffs.slice(0, 1), updatedAt: serverTimestamp() }));
+  await assertSucceeds(updateDoc(priceRef, { tariffs: prices.tariffs, updatedAt: serverTimestamp() }));
+  await assertSucceeds(setDoc(saleRef, { year: 2026, month: 10, ...amounts(0), sifones: 10, marginSnapshot: amounts(2), updatedAt: serverTimestamp() }));
+  const allocations = monthPeriods(prices, 2026, 10);
+  allocations[0].sifones = 4; allocations[1].sifones = 6;
+  await assertSucceeds(updateDoc(saleRef, { allocations, updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(saleRef, { sifones: 11, updatedAt: serverTimestamp() }));
+  const forged = structuredClone(allocations); forged[0].marginSnapshot.sifones = 5;
+  await assertFails(updateDoc(saleRef, { allocations: forged, updatedAt: serverTimestamp() }));
+  const edited = structuredClone(allocations); edited[1].sifones = 7;
+  await assertSucceeds(updateDoc(saleRef, { ...sumUnits(edited), allocations: edited, updatedAt: serverTimestamp() }));
+  await assertFails(getDoc(doc(dbFor('bob'), 'users/alice/sales/2026-10')));
+  const saved = (await getDoc(saleRef)).data(); assert.deepEqual(saved.marginSnapshot, amounts(2));
+});
+
+test('24 vigencias anuales y dos tramos mensuales dentro de límites de reglas', async () => {
+  const { monthPeriods, sumUnits } = await import('../src/domain/pricing.ts');
+  const db = dbFor('alice');
+  const amounts = n => ({ sifones: n, litros6: n, litros12: n, litros20: n });
+  const tariffs = Array.from({ length: 24 }, (_, i) => ({ effectiveFrom: `2026-${String(Math.floor(i / 2)+1).padStart(2, '0')}-${i % 2 ? '12' : '01'}`, margins: amounts(i), publicPrices: amounts(i+10) }));
+  const prices = { ...amounts(0), tariffs };
+  const ref = doc(db, 'users/alice/config/prices-2026');
+  await assertSucceeds(setDoc(ref, { ...prices, tariffs: [], updatedAt: serverTimestamp() }));
+  for (let i = 1; i <= tariffs.length; i++) await assertSucceeds(updateDoc(ref, { tariffs: tariffs.slice(0, i), updatedAt: serverTimestamp() }));
+  const allocations = monthPeriods(prices, 2026, 11);
+  allocations.forEach(row => { row.sifones = 1; });
+  await assertSucceeds(setDoc(doc(db, 'users/alice/sales/2026-11'), { year: 2026, month: 11, ...sumUnits(allocations), allocations, marginSnapshot: amounts(0), updatedAt: serverTimestamp() }));
+});
+
+test('servicio real guarda vigencias y ventas, y respaldo v3 restaura sin perder históricos', async () => {
+  const { monthPeriods, sumUnits } = await import('../src/domain/pricing.ts');
+  const { saveSalesEntry, savePriceTariff } = await import('../src/services/firestore.ts');
+  const db = dbFor('alice');
+  const a = n => ({ sifones: n, litros6: n, litros12: n, litros20: n });
+  await savePriceTariff('alice', 2026, { effectiveFrom: '2026-01-01', margins: a(2), publicPrices: a(10) }, db);
+  const prices = await savePriceTariff('alice', 2026, { effectiveFrom: '2026-10-12', margins: a(3), publicPrices: a(12) }, db);
+  const allocations = monthPeriods(prices, 2026, 10); allocations[0].sifones = 4; allocations[1].sifones = 6;
+  const saved = await saveSalesEntry('alice', { year: 2026, month: 10, ...sumUnits(allocations), allocations }, db);
+  assert.equal(saved.allocations[1].publicPriceSnapshot.sifones, 12);
+  await assert.rejects(saveSalesEntry('alice', { year: 2026, month: 10, ...a(0) }, db), /se edita por tramos/);
+  const backup = restoreBackup({ sales: [{ id: '2026-10', data: { year: 2026, month: 10, ...sumUnits(allocations), allocations, marginSnapshot: a(0), updatedAt: backupTimestamp }, timestampPaths: ['/updatedAt'] }] });
+  backup.schemaVersion = 3;
+  backup.collections.config = [{ id: 'prices-2026', data: { ...prices, updatedAt: backupTimestamp }, timestampPaths: ['/updatedAt'] }];
+  backup.counts.config = 1; backup.counts.total += 1;
+  const bob = dbFor('bob');
+  const result = await restoreFullBackupToFirestore(bob, 'bob', backup);
+  assert.equal(result.writtenDocuments, 2);
+  assert.deepEqual((await getDoc(doc(bob, 'users/bob/sales/2026-10'))).data().allocations, allocations);
+  await assertSucceeds(restoreFullBackupToFirestore(bob, 'bob', backup));
+  const conflicting = structuredClone(backup); conflicting.collections.sales[0].data.allocations[0].marginSnapshot.sifones = 1;
+  await assert.rejects(restoreFullBackupToFirestore(bob, 'bob', conflicting), /otro desglose histórico|vigencia ausente o incompatible/);
 });

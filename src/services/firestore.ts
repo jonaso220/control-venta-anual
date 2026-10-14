@@ -1,3 +1,4 @@
+import { prepareAllocatedSale, validateTariffs } from '../domain/pricing';
 import {
   collection,
   doc,
@@ -19,6 +20,7 @@ import type {
   ExpenseSnapshot,
   FixedExpenseVersion,
   PriceConfig,
+  PriceTariff,
   VariableExpense,
   SalesGoal,
 } from '../types';
@@ -48,8 +50,8 @@ export async function getSalesForYear(uid: string, year: number): Promise<SalesE
     .toSorted((a, b) => a.month - b.month);
 }
 
-export async function saveSalesEntry(uid: string, entry: SalesEntry): Promise<SalesEntry> {
-  const d = getDb();
+export async function saveSalesEntry(uid: string, entry: SalesEntry, database?: Firestore): Promise<SalesEntry> {
+  const d = database ?? getDb();
   const docId = `${entry.year}-${String(entry.month).padStart(2, '0')}`;
   const salesRef = doc(d, 'users', uid, 'sales', docId);
   const pricesRef = doc(d, 'users', uid, 'config', `prices-${entry.year}`);
@@ -60,9 +62,24 @@ export async function saveSalesEntry(uid: string, entry: SalesEntry): Promise<Sa
       ? ({ id: existingSnapshot.id, ...existingSnapshot.data() } as SalesEntry)
       : undefined;
 
+    const pricesSnapshot = await transaction.get(pricesRef);
+    const configured = pricesSnapshot.exists() ? pricesSnapshot.data() as PriceConfig : EMPTY_MARGINS;
+    if (entry.allocations) {
+      const normalized = prepareAllocatedSale(entry, existing, configured);
+      transaction.set(salesRef, {
+        year: entry.year, month: entry.month, ...copyProductAmounts(entry),
+        marginSnapshot: copyProductAmounts(normalized.marginSnapshot!),
+        allocations: entry.allocations,
+        ...(!existingSnapshot.exists() ? { createdAt: serverTimestamp() } : {}),
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+      return { ...normalized, id: docId };
+    }
+    if (existing?.allocations) throw new Error('Este mes se edita por tramos de vigencia.');
+    if (!existing && configured.tariffs?.length) throw new Error('Registra este mes usando el desglose por vigencia.');
+
     let fallbackMargins: PriceConfig | null = null;
     if (!isValidProductAmounts(existing?.marginSnapshot)) {
-      const pricesSnapshot = await transaction.get(pricesRef);
       if (pricesSnapshot.exists() && hasConfiguredMargins(pricesSnapshot.data())) {
         fallbackMargins = pricesSnapshot.data() as PriceConfig;
       }
@@ -390,6 +407,7 @@ export async function savePrices(uid: string, prices: PriceConfig, year: number)
 
     transaction.set(pricesRef, {
       ...copyProductAmounts(prices),
+      ...(currentPricesSnapshot.data()?.tariffs ? { tariffs: currentPricesSnapshot.data()!.tariffs } : {}),
       updatedAt: serverTimestamp(),
     });
     if (hasCurrentMargins) {
@@ -401,6 +419,21 @@ export async function savePrices(uid: string, prices: PriceConfig, year: number)
     }
 
     return normalizedSales;
+  });
+}
+
+/** Adds an immutable tariff; never touches sales or annual legacy margins. */
+export async function savePriceTariff(uid: string, year: number, tariff: PriceTariff, database?: Firestore): Promise<PriceConfig> {
+  const d = database ?? getDb();
+  const ref = doc(d, 'users', uid, 'config', `prices-${year}`);
+  return runTransaction(d, async transaction => {
+    const snapshot = await transaction.get(ref);
+    const prices = snapshot.exists() ? snapshot.data() as PriceConfig : EMPTY_MARGINS;
+    const tariffs = [...(prices.tariffs ?? []), tariff].toSorted((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
+    validateTariffs(tariffs, year);
+    const next = { ...copyProductAmounts(prices), tariffs };
+    transaction.set(ref, { ...next, updatedAt: serverTimestamp() });
+    return next;
   });
 }
 

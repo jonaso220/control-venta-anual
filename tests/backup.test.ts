@@ -21,7 +21,7 @@ const emptyCounts = {
 
 function emptyBackup(): FullBackup {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     app: 'control-venta-anual',
     exportedAt: timestamp,
     years: [],
@@ -125,9 +125,9 @@ test('acepta un respaldo vacio con esquema y conteos coherentes', () => {
   assert.deepEqual(validateFullBackup(emptyBackup()), emptyBackup());
 });
 
-test('acepta respaldos v1 y los normaliza a v2 sin inventar versiones', () => {
+test('acepta respaldos v1 y los normaliza a v3 sin inventar versiones', () => {
   const validated = validateFullBackup(legacyEmptyBackup());
-  assert.equal(validated.schemaVersion, 2);
+  assert.equal(validated.schemaVersion, 3);
   assert.deepEqual(validated.collections.fixedExpenseVersions, []);
   assert.equal(validated.counts.fixedExpenseVersions, 0);
 });
@@ -215,4 +215,22 @@ test('rechaza claves de contaminacion de prototipo provenientes de JSON', () => 
   const malicious = JSON.parse(JSON.stringify(emptyBackup())) as Record<string, unknown>;
   malicious.collections = JSON.parse('{"__proto__":[],"sales":[],"expenses":[],"fixedExpenseVersions":[],"variableExpenses":[],"config":[],"priceHistory":[],"goals":[]}');
   assert.throws(() => validateFullBackup(malicious), BackupValidationError);
+});
+
+test('conserva vigencias y desgloses en el respaldo v3; sigue aceptando v2', async () => {
+  const { monthPeriods, sumUnits } = await import('../src/domain/pricing.ts');
+  const amounts = (n: number) => ({ sifones: n, litros6: n, litros12: n, litros20: n });
+  const prices = { ...amounts(2), tariffs: [
+    { effectiveFrom: '2026-01-01', margins: amounts(2), publicPrices: amounts(10) },
+    { effectiveFrom: '2026-10-12', margins: amounts(3), publicPrices: amounts(12) },
+  ] };
+  const backup = emptyBackup(); backup.years = [2026];
+  const allocations = monthPeriods(prices, 2026, 10); allocations[1].sifones = 3;
+  backup.collections.config.push({ id: 'prices-2026', data: { ...prices, updatedAt: timestamp }, timestampPaths: ['/updatedAt'] });
+  backup.collections.sales.push({ id: '2026-10', data: { year: 2026, month: 10, ...sumUnits(allocations), marginSnapshot: amounts(2), allocations, updatedAt: timestamp } as unknown as import('../src/services/backup.ts').BackupObject, timestampPaths: ['/updatedAt'] });
+  backup.counts = { ...emptyCounts, config: 1, sales: 1, total: 2 };
+  assert.deepEqual(validateFullBackup(backup), backup);
+  assert.equal(validateFullBackup({ ...emptyBackup(), schemaVersion: 2 }).schemaVersion, 3);
+  backup.collections.sales[0].data.sifones = 4;
+  assert.throws(() => validateFullBackup(backup), /totales/);
 });

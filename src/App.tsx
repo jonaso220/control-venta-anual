@@ -16,6 +16,7 @@ import type {
   ExpenseSnapshot,
   FixedExpenseVersion,
   PriceConfig,
+  PriceTariff,
   VariableExpense,
   SalesGoal,
 } from './types';
@@ -29,6 +30,7 @@ import {
   deleteExpense,
   getPrices,
   savePrices,
+  savePriceTariff,
   getVariableExpenses,
   saveVariableExpense,
   deleteVariableExpense,
@@ -250,6 +252,16 @@ function AppContent() {
     }
   };
 
+  const handleSaveTariff = async (tariff: PriceTariff) => {
+    if (!user || !activeScope) return;
+    const requestedScope = activeScope;
+    const saved = await savePriceTariff(user.uid, year, tariff);
+    if (activeScopeRef.current === requestedScope) {
+      setPrices(saved);
+      toast('Vigencia guardada. Los históricos no se modificaron.');
+    }
+  };
+
   const handleSavePrices = async (newPrices: PriceConfig) => {
     if (!user || !activeScope) return;
     const requestedScope = activeScope;
@@ -258,7 +270,7 @@ function AppContent() {
       if (activeScopeRef.current !== requestedScope) return;
 
       setSales(migratedSales);
-      setPrices(newPrices);
+      setPrices(current => ({ ...newPrices, tariffs: current.tariffs }));
       toast('Márgenes guardados correctamente');
 
       try {
@@ -363,7 +375,7 @@ function AppContent() {
                 <VariableExpensesPage expenses={variableExpenses} year={year} onSave={handleSaveVariableExpense} onDelete={handleDeleteVariableExpense} />
               )}
               {activeTab === 'prices' && (
-                <PricesPage prices={prices} onSave={handleSavePrices} year={year} history={priceHistory} />
+                <PricesPage key={year} onSaveTariff={handleSaveTariff} prices={prices} onSave={handleSavePrices} year={year} history={priceHistory} />
               )}
               {activeTab === 'settings' && (
                 <SettingsPage

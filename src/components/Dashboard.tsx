@@ -1,3 +1,4 @@
+import SalesAmountsSummary from './SalesAmountsSummary';
 import { lazy, Suspense, useMemo } from 'react';
 import { TrendingUp, TrendingDown, DollarSign, ShoppingCart, Receipt, BarChart3 } from 'lucide-react';
 import type { SalesEntry, PriceConfig, Expense, SalesGoal, VariableExpense } from '../types';
@@ -116,6 +117,7 @@ export default function Dashboard({ sales, prices, expenses, variableExpenses, y
 
   return (
     <div className="space-y-6">
+      <SalesAmountsSummary sales={sales} prices={prices} year={year} />
       <div>
         <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Dashboard</h2>
         <p className="text-slate-500 dark:text-slate-400">{periodLabel}</p>

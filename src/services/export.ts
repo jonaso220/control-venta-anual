@@ -1,3 +1,4 @@
+import { salesAmounts, PRODUCTS, PRODUCT_LABELS } from '../domain/pricing';
 import type { Expense, PriceConfig, SalesEntry, VariableExpense } from '../types';
 import { EXPENSE_CATEGORIES, MONTHS } from '../types';
 import {
@@ -52,6 +53,8 @@ export async function exportYearExcel(
 
   const summaryData = financialMonths.map((result, index) => ({
     Mes: MONTHS[index],
+    'Venta al público': salesAmounts(salesByMonth.get(index + 1)).unknownUnits ? 'Pendiente de desglose' : salesAmounts(salesByMonth.get(index + 1)).revenue,
+    'Importe empresa (no pagos)': salesAmounts(salesByMonth.get(index + 1)).unknownUnits ? 'Pendiente de desglose' : salesAmounts(salesByMonth.get(index + 1)).company,
     'Margen bruto': result.grossMargin,
     'Gastos fijos': result.fixedExpenses,
     'Gastos variables': result.variableExpenses,
@@ -71,14 +74,14 @@ export async function exportYearExcel(
       'Total unidades': entry
         ? entry.sifones + entry.litros6 + entry.litros12 + entry.litros20
         : 0,
-      'Margen unitario sifones': appliedMargins.sifones,
-      'Margen unitario 6L': appliedMargins.litros6,
-      'Margen unitario 12L': appliedMargins.litros12,
-      'Margen unitario 20L': appliedMargins.litros20,
+      'Margen unitario sifones': entry?.allocations ? 'Ver detalle por vigencia' : appliedMargins.sifones,
+      'Margen unitario 6L': entry?.allocations ? 'Ver detalle por vigencia' : appliedMargins.litros6,
+      'Margen unitario 12L': entry?.allocations ? 'Ver detalle por vigencia' : appliedMargins.litros12,
+      'Margen unitario 20L': entry?.allocations ? 'Ver detalle por vigencia' : appliedMargins.litros20,
       'Margen bruto': calculateSalesMargin(entry, margins),
       'Origen del margen': !entry
         ? 'Sin venta'
-        : isValidProductAmounts(entry.marginSnapshot)
+        : entry.allocations ? 'Desglose por vigencia' : isValidProductAmounts(entry.marginSnapshot)
           ? 'Snapshot histórico'
           : 'Configuración actual (registro legado)',
     };
@@ -114,7 +117,7 @@ export async function exportYearExcel(
     '20 Litros': margins.litros20,
   }];
 
-  const sheets = [
+  const sheets: Array<{ sheet: string; rows: ExportRow[]; headers: string[] }> = [
     { sheet: 'Resumen', rows: summaryData, headers: Object.keys(summaryData[0]) },
     { sheet: 'Ventas', rows: salesData, headers: Object.keys(salesData[0]) },
     {
@@ -129,6 +132,17 @@ export async function exportYearExcel(
     },
     { sheet: 'Márgenes actuales', rows: marginsData, headers: Object.keys(marginsData[0]) },
   ];
+
+  const breakdown: ExportRow[] = sales.flatMap(entry => (entry.allocations ?? []).flatMap(row => PRODUCTS.map((k, i) => ({
+    Desde: row.from, Hasta: row.to, Producto: PRODUCT_LABELS[i], Unidades: row[k],
+    'Precio al público unitario': row.publicPriceSnapshot[k], 'Margen propio unitario': row.marginSnapshot[k],
+    'Importe empresa (no pagos)': Math.round(row[k] * (row.publicPriceSnapshot[k] - row.marginSnapshot[k]) * 100) / 100,
+  }))));
+  if (breakdown.length) sheets.push({ sheet: 'Detalle por vigencia', rows: breakdown, headers: Object.keys(breakdown[0]) });
+  const tariffRows: ExportRow[] = (margins.tariffs ?? []).flatMap(t => PRODUCTS.map((k, i) => ({
+    Desde: t.effectiveFrom, Producto: PRODUCT_LABELS[i], 'Precio al público': t.publicPrices[k], 'Margen propio': t.margins[k],
+  })));
+  if (tariffRows.length) sheets.push({ sheet: 'Vigencias', rows: tariffRows, headers: Object.keys(tariffRows[0]) });
 
   await writeXlsxFile(
     sheets.map(({ sheet, rows, headers }) => ({

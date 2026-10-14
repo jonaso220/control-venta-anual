@@ -1,3 +1,5 @@
+import SalesBreakdown from './SalesBreakdown';
+import SalesAmountsSummary from './SalesAmountsSummary';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CircleAlert, Save, Target, TrendingDown, TrendingUp } from 'lucide-react';
 import type { Expense, SalesEntry, PriceConfig, SalesGoal, VariableExpense } from '../types';
@@ -36,6 +38,7 @@ export default function SalesPage({
   goals,
   onSaveGoal,
 }: SalesPageProps) {
+  const [breakdownMonth, setBreakdownMonth] = useState(new Date().getMonth() + 1);
   const [editingMonth, setEditingMonth] = useState<number | null>(null);
   const [form, setForm] = useState({ sifones: 0, litros6: 0, litros12: 0, litros20: 0 });
   const [saving, setSaving] = useState(false);
@@ -59,12 +62,17 @@ export default function SalesPage({
     () => sumFinancialResults(financialMonths.slice(0, elapsedMonths)),
     [elapsedMonths, financialMonths],
   );
-  const marginsConfigured = hasConfiguredMargins(prices);
+  const marginsConfigured = Boolean(prices.tariffs?.length) || hasConfiguredMargins(prices);
   const existingEditingEntry = editingMonth === null ? undefined : salesMap.get(editingMonth);
-  const canSaveEditing = marginsConfigured || isValidProductAmounts(existingEditingEntry?.marginSnapshot);
+  const canSaveEditing = !existingEditingEntry?.allocations && Boolean(existingEditingEntry || !prices.tariffs?.length) && (marginsConfigured || isValidProductAmounts(existingEditingEntry?.marginSnapshot));
 
   function startEditing(month: number) {
     const existing = salesMap.get(month);
+    if (existing?.allocations || (!existing && prices.tariffs?.length)) {
+      setBreakdownMonth(month);
+      document.getElementById('sales-breakdown')?.scrollIntoView({ behavior: 'smooth' });
+      return;
+    }
     setForm({
       sifones: existing?.sifones ?? 0,
       litros6: existing?.litros6 ?? 0,
@@ -100,6 +108,8 @@ export default function SalesPage({
 
   return (
     <div className="space-y-6">
+      <div id="sales-breakdown"><SalesBreakdown key={`${year}-${breakdownMonth}`} month={breakdownMonth} onMonthChange={setBreakdownMonth} year={year} prices={prices} sales={sales} onSave={onSave} /></div>
+      <SalesAmountsSummary year={year} sales={sales} prices={prices} />
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Ventas</h2>

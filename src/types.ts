@@ -11,11 +11,28 @@ export interface SalesEntry extends ProductAmounts {
   month: number; // 1-12
   /** Margen unitario aplicado al guardar. Los registros antiguos pueden no tenerlo. */
   marginSnapshot?: ProductAmounts;
+  /** Desglose explícito; nunca se infiere a partir del total mensual. */
+  allocations?: SalesAllocation[];
   createdAt?: Date;
   updatedAt?: Date;
 }
 
+export interface PriceTariff {
+  effectiveFrom: string; // YYYY-MM-DD, dentro del año configurado
+  margins: ProductAmounts;
+  publicPrices: ProductAmounts;
+}
+
+export interface SalesAllocation extends ProductAmounts {
+  tariffFrom: string;
+  from: string;
+  to: string;
+  marginSnapshot: ProductAmounts;
+  publicPriceSnapshot: ProductAmounts;
+}
+
 export interface PriceConfig extends ProductAmounts {
+  tariffs?: PriceTariff[];
   id?: string;
   updatedAt?: Date;
 }

@@ -1,6 +1,7 @@
+import PriceSchedule from './PriceSchedule';
 import { useState, useEffect } from 'react';
 import { Save, DollarSign, History, ChevronDown, ChevronUp } from 'lucide-react';
-import type { PriceConfig } from '../types';
+import type { PriceConfig, PriceTariff } from '../types';
 import { formatCurrency } from '../utils/format';
 
 interface MarginHistoryEntry {
@@ -13,12 +14,13 @@ interface MarginHistoryEntry {
 
 interface PricesPageProps {
   prices: PriceConfig;
+  onSaveTariff?: (tariff: PriceTariff) => Promise<void>;
   onSave: (prices: PriceConfig) => Promise<void>;
   year: number;
   history: MarginHistoryEntry[];
 }
 
-export default function PricesPage({ prices, onSave, year, history }: PricesPageProps) {
+export default function PricesPage({ prices, onSave, year, history, onSaveTariff }: PricesPageProps) {
   const [form, setForm] = useState<PriceConfig>(prices);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -49,6 +51,8 @@ export default function PricesPage({ prices, onSave, year, history }: PricesPage
 
   return (
     <div className="space-y-6">
+      {onSaveTariff && <PriceSchedule prices={prices} year={year} onSave={onSaveTariff} />}
+      <p className="text-sm text-slate-500">Márgenes anuales de compatibilidad: para registros antiguos sin desglose. No incluyen precio al público.</p>
       <div>
         <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Márgenes por unidad</h2>
         <p className="text-slate-500 dark:text-slate-400">Configura cuánto margen deja cada unidad vendida - {year}</p>

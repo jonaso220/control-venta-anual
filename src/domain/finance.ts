@@ -1,3 +1,4 @@
+import { money } from './pricing';
 import type {
   Expense,
   ExpenseSnapshot,
@@ -76,6 +77,7 @@ export function freezeSalesMargins(entry: SalesEntry, fallbackMargins: PriceConf
 
 export function calculateSalesMargin(entry: SalesEntry | undefined, fallbackMargins: PriceConfig): number {
   if (!entry) return 0;
+  if (entry.allocations) return money(entry.allocations.reduce((total, row) => total + PRODUCT_KEYS.reduce((n, k) => n + row[k] * row.marginSnapshot[k], 0), 0));
   const margins = getSalesMargins(entry, fallbackMargins);
   return PRODUCT_KEYS.reduce((total, key) => total + entry[key] * margins[key], 0);
 }

@@ -1,3 +1,5 @@
+import { validateAllocations, validateTariffs, samePeriods, sameAmounts } from '../domain/pricing';
+import type { SalesEntry, SalesAllocation, PriceTariff } from '../types';
 import {
   Timestamp,
   collection,
@@ -10,7 +12,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 
-export const BACKUP_SCHEMA_VERSION = 2 as const;
+export const BACKUP_SCHEMA_VERSION = 3 as const;
 export const BACKUP_APP_ID = 'control-venta-anual' as const;
 const LEGACY_BACKUP_SCHEMA_VERSION = 1 as const;
 
@@ -351,6 +353,7 @@ export function validateFullBackup(value: unknown): FullBackup {
 
   if (
     root.schemaVersion !== BACKUP_SCHEMA_VERSION
+    && root.schemaVersion !== 2
     && root.schemaVersion !== LEGACY_BACKUP_SCHEMA_VERSION
   ) {
     throw new BackupValidationError(
@@ -394,6 +397,7 @@ export function validateFullBackup(value: unknown): FullBackup {
   validateCounts(root.counts, sourceExpectedCounts, sourceCollections);
   backfillLegacyFixedExpenseVersions(collections);
   validateFixedExpenseHistoryConsistency(collections);
+  validatePricingConsistency(collections);
 
   const expectedCounts = calculateCounts(collections);
   if (expectedCounts.total > MAX_BACKUP_DOCUMENTS) {
@@ -421,6 +425,20 @@ export function validateFullBackup(value: unknown): FullBackup {
     counts: expectedCounts,
     collections,
   } as FullBackup;
+}
+
+function validatePricingConsistency(collections: FullBackup['collections']): void {
+  for (const sale of collections.sales) {
+    if (!sale.data.allocations) continue;
+    const config = collections.config.find(c => c.id === `prices-${sale.data.year}`);
+    const tariffs = (config?.data.tariffs ?? []) as unknown as PriceTariff[];
+    for (const row of sale.data.allocations as unknown as SalesAllocation[]) {
+      if (!tariffs.some(t => t.effectiveFrom === row.tariffFrom
+        && sameAmounts(t.margins, row.marginSnapshot) && sameAmounts(t.publicPrices, row.publicPriceSnapshot))) {
+        throw new BackupValidationError(`La venta ${sale.id} referencia una vigencia ausente o incompatible. No se modificó ningún dato.`);
+      }
+    }
+  }
 }
 
 function backfillLegacySalesMarginSnapshots(collections: FullBackup['collections']): void {
@@ -613,13 +631,16 @@ function validateCollectionData(
     case 'sales':
       assertOnlyKeys(data, [
         'year', 'month', 'sifones', 'litros6', 'litros12', 'litros20',
-        'marginSnapshot', 'createdAt', 'updatedAt',
+        'marginSnapshot', 'allocations', 'createdAt', 'updatedAt',
       ], `${context}.data`);
       assertYear(data.year, `${context}.data.year`);
       assertMonth(data.month, `${context}.data.month`);
       assertYearMonthDocumentId(id, data.year, data.month, `${context}.id`);
       for (const key of MARGIN_KEYS) {
         assertBoundedInteger(data[key], `${context}.data.${key}`, 0, 1_000_000_000);
+      }
+      if (data.allocations !== undefined) {
+        try { validateAllocations(data as unknown as SalesEntry); } catch (e) { throw new BackupValidationError(`${context}: ${(e as Error).message}`); }
       }
       if (data.marginSnapshot !== undefined) validateMarginMap(data.marginSnapshot, `${context}.data.marginSnapshot`);
       validateTimestampFields(data, timestampPaths, ['updatedAt'], ['createdAt'], context);
@@ -683,7 +704,10 @@ function validateCollectionData(
         throw new BackupValidationError(`${context}.id: solo se admiten documentos prices-AAAA.`);
       }
       assertYear(Number(id.slice('prices-'.length)), `${context}.id`);
-      assertOnlyKeys(data, [...MARGIN_KEYS, 'updatedAt'], `${context}.data`);
+      if (data.tariffs !== undefined) {
+        try { validateTariffs(data.tariffs, Number(id.slice(7))); } catch (e) { throw new BackupValidationError(`${context}: ${(e as Error).message}`); }
+      }
+      assertOnlyKeys(data, [...MARGIN_KEYS, 'tariffs', 'updatedAt'], `${context}.data`);
       for (const key of MARGIN_KEYS) {
         assertBoundedNumber(data[key], `${context}.data.${key}`, 0, 1_000_000_000);
       }
@@ -996,6 +1020,21 @@ export async function restoreFullBackupToFirestore(
         continue;
       }
 
+      if (collectionName === 'config' && existing?.tariffs) {
+        const incoming = (record.data.tariffs ?? []) as unknown as PriceTariff[];
+        const stored = existing.tariffs as PriceTariff[];
+        if (stored.some(t => incoming.some(n => n.effectiveFrom === t.effectiveFrom && !sameBackupValue(n as unknown as BackupValue, t as unknown as BackupValue)))) {
+          throw new BackupValidationError(`La configuración ${record.id} tiene otra tarifa para la misma fecha. No se modificó ningún dato.`);
+        }
+        record.data.tariffs = [...stored, ...incoming.filter(t => !stored.some(n => n.effectiveFrom === t.effectiveFrom))]
+          .toSorted((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom)) as unknown as BackupValue;
+        validateTariffs(record.data.tariffs, Number(record.id.slice(7)));
+      }
+      if (collectionName === 'sales' && existing?.allocations) {
+        if (!record.data.allocations || !samePeriods(existing.allocations as SalesAllocation[], record.data.allocations as unknown as SalesAllocation[])) {
+          throw new BackupValidationError(`La venta ${record.id} ya tiene otro desglose histórico. No se modificó ningún dato.`);
+        }
+      }
       if (collectionName === 'sales' && existing?.marginSnapshot !== undefined) {
         const normalizedExisting = normalizeDocument(collectionName, record.id, existing);
         if (!sameBackupValue(normalizedExisting.data.marginSnapshot, record.data.marginSnapshot)) {
@@ -1019,6 +1058,7 @@ export async function restoreFullBackupToFirestore(
     }
   }
 
+  otherWrites.sort((a, b) => Number(b.collectionName === 'config') - Number(a.collectionName === 'config'));
   let writtenDocuments = 0;
   try {
     // A fixed expense and all of its missing snapshots are committed together,
@@ -1041,9 +1081,28 @@ export async function restoreFullBackupToFirestore(
       writtenDocuments += writes.length;
     }
 
-    for (let index = 0; index < otherWrites.length; index += RESTORE_BATCH_SIZE) {
+    // Add immutable tariffs one at a time: rules validate each addition and preserve prior dates.
+    for (const write of otherWrites.filter(w => w.collectionName === 'config')) {
+      const stored = (write.existingData?.tariffs ?? []) as PriceTariff[];
+      const desired = (write.record.data.tariffs ?? []) as unknown as PriceTariff[];
+      const missing = desired.filter(t => !stored.some(old => old.effectiveFrom === t.effectiveFrom));
+      let tariffs = [...stored];
+      const steps = missing.length ? missing : [null];
+      let counted = false;
+      for (const tariff of steps) {
+        if (tariff) tariffs = [...tariffs, tariff].toSorted((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
+        const batch = writeBatch(database);
+        addRestoreWrite(batch, database, uid, { ...write, record: { ...write.record,
+          data: { ...write.record.data, ...(tariffs.length ? { tariffs: tariffs as unknown as BackupValue } : {}) },
+        } });
+        await batch.commit();
+        if (!counted) { writtenDocuments += 1; counted = true; }
+      }
+    }
+    const remainingWrites = otherWrites.filter(w => w.collectionName !== 'config');
+    for (let index = 0; index < remainingWrites.length; index += RESTORE_BATCH_SIZE) {
       const batch = writeBatch(database);
-      const writes = otherWrites.slice(index, index + RESTORE_BATCH_SIZE);
+      const writes = remainingWrites.slice(index, index + RESTORE_BATCH_SIZE);
       writes.forEach(write => addRestoreWrite(batch, database, uid, write));
       await batch.commit();
       writtenDocuments += writes.length;

@@ -77,3 +77,46 @@ npx firebase-tools deploy --only firestore:rules
 ```
 
 No actives las reglas nuevas antes de publicar el cliente actualizado: una versión antigua no envía `marginSnapshot` y sus escrituras de ventas serán rechazadas.
+
+## Precios por fecha y desglose de ventas
+
+La app conserva el registro mensual `sales/AAAA-MM`. No tiene ventas diarias y no
+inventa una distribución diaria. En **Precios** se añaden vigencias con fecha
+`AAAA-MM-DD`, precio al público y margen propio para los cuatro productos.
+El importe de la empresa por unidad es público menos margen. No se registra ni se
+presupone ningún pago efectuado.
+
+En **Ventas → Ventas por vigencia**, selecciona el mes e introduce las unidades
+reales de cada tramo. Por ejemplo, un aumento el 12 de octubre genera los tramos
+1–11 y 12–31. Configura primero las tarifas necesarias para cubrir todo el mes;
+se pueden añadir fechas anteriores faltantes. No hay precios privados por defecto.
+Los importes admiten dos decimales, margen cero y precio cero explícitos.
+
+Para convertir un mes existente, el reparto debe conservar exactamente las
+unidades de cada producto y se confirma el cálculo en pantalla. Después de guardar
+pueden corregirse las cantidades de cada tramo. El `marginSnapshot` mensual
+original permanece inmutable; el nuevo campo `allocations` guarda las fechas,
+cantidades y snapshots de precio/margen que explican el cálculo confirmado.
+Añadir otra vigencia nunca recalcula automáticamente ventas guardadas. La acción
+**Revisar reparto con nuevas vigencias** permite una nueva división explícita,
+conservando de nuevo los totales durante ese paso. No es un diario de auditoría de
+cada edición de cantidades o reparto.
+
+Los meses antiguos sin desglose conservan la ganancia calculada con su margen
+histórico. Sus importes de público y empresa aparecen pendientes, y los resúmenes
+se identifican como parciales. Dashboard, ventas, metas y Excel utilizan el mismo
+cálculo de ganancia. El Excel agrega detalle por vigencia y aclara que el importe
+de empresa no representa pagos.
+
+Las vigencias se configuran por año: antes de registrar un año nuevo hay que
+configurar su tarifa inicial; no se arrastran importes automáticamente. Las
+vigencias guardadas son inmutables, con un máximo de 24 por año y dos tramos (un cambio dentro del mes)
+por mes. El límite mantiene las validaciones dentro del presupuesto de reglas de
+Firestore. Se requiere coordinación del cliente y `firestore.rules` para activar
+la función; esta mejora local no publica ni migra datos de producción.
+
+El respaldo JSON v3 conserva vigencias y desgloses y admite los respaldos v1/v2.
+La restauración valida referencias y conflictos antes de escribir, conserva
+vigencias existentes y agrega las faltantes individualmente. Si se interrumpe,
+puede reintentarse; un archivo viejo no elimina tarifas ni sustituye un desglose
+histórico ya guardado. Los respaldos v3 no deben abrirse en clientes anteriores.
