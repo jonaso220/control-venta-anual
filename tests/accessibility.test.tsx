@@ -71,7 +71,7 @@ describe('accesibilidad de navegación y formularios', () => {
 
     const dialog = screen.getByRole('dialog', { name: 'Menú principal' });
     const closeButton = within(dialog).getByRole('button', { name: 'Cerrar menú' });
-    const lastButton = within(dialog).getByRole('button', { name: 'Cerrar sesion' });
+    const lastButton = within(dialog).getByRole('button', { name: 'Cerrar sesión' });
 
     expect(dialog).toHaveAttribute('aria-modal', 'true');
     expect(closeButton).toHaveFocus();
@@ -201,7 +201,8 @@ describe('accesibilidad de navegación y formularios', () => {
     expect(screen.getByRole('button', { name: 'Definir meta de margen de Enero' })).toHaveFocus();
   });
 
-  it('asocia cada margen visible con su input y su descripción', () => {
+  it('asocia cada margen visible con su input y su descripción', async () => {
+    const user = userEvent.setup();
     render(
       <PricesPage
         prices={{ sifones: 1, litros6: 2, litros12: 3, litros20: 4 }}
@@ -211,6 +212,7 @@ describe('accesibilidad de navegación y formularios', () => {
       />,
     );
 
+    await user.click(screen.getByText('Ajustar márgenes base anteriores'));
     expect(screen.getByRole('spinbutton', { name: 'Sifones' })).toHaveAccessibleDescription('Margen por sifón');
     expect(screen.getByRole('spinbutton', { name: '6 Litros' })).toHaveAccessibleDescription('Margen por bidón de 6L');
     expect(screen.getByRole('spinbutton', { name: '12 Litros' })).toHaveAccessibleDescription('Margen por bidón de 12L');

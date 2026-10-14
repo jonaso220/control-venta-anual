@@ -53,8 +53,9 @@ export async function exportYearExcel(
 
   const summaryData = financialMonths.map((result, index) => ({
     Mes: MONTHS[index],
-    'Venta al público': salesAmounts(salesByMonth.get(index + 1)).unknownUnits ? 'Pendiente de desglose' : salesAmounts(salesByMonth.get(index + 1)).revenue,
-    'Importe empresa (no pagos)': salesAmounts(salesByMonth.get(index + 1)).unknownUnits ? 'Pendiente de desglose' : salesAmounts(salesByMonth.get(index + 1)).company,
+    'Venta al público conocida': salesAmounts(salesByMonth.get(index + 1)).revenue,
+    'Empresa conocida (no pagos)': salesAmounts(salesByMonth.get(index + 1)).company,
+    'Unidades sin precio público': salesAmounts(salesByMonth.get(index + 1)).unknownUnits,
     'Margen bruto': result.grossMargin,
     'Gastos fijos': result.fixedExpenses,
     'Gastos variables': result.variableExpenses,
@@ -130,13 +131,13 @@ export async function exportYearExcel(
       rows: variableData,
       headers: ['Fecha', 'Descripción', 'Categoría', 'Monto', 'Notas'],
     },
-    { sheet: 'Márgenes actuales', rows: marginsData, headers: Object.keys(marginsData[0]) },
+    { sheet: 'Márgenes anteriores', rows: marginsData, headers: Object.keys(marginsData[0]) },
   ];
 
   const breakdown: ExportRow[] = sales.flatMap(entry => (entry.allocations ?? []).flatMap(row => PRODUCTS.map((k, i) => ({
     Desde: row.from, Hasta: row.to, Producto: PRODUCT_LABELS[i], Unidades: row[k],
-    'Precio al público unitario': row.publicPriceSnapshot[k], 'Margen propio unitario': row.marginSnapshot[k],
-    'Importe empresa (no pagos)': Math.round(row[k] * (row.publicPriceSnapshot[k] - row.marginSnapshot[k]) * 100) / 100,
+    'Precio al público unitario': row.publicPriceSnapshot?.[k] ?? 'No registrado', 'Margen propio unitario': row.marginSnapshot[k],
+    'Importe empresa (no pagos)': row.publicPriceSnapshot ? Math.round(row[k] * (row.publicPriceSnapshot[k] - row.marginSnapshot[k]) * 100) / 100 : 'No calculable sin precio público',
   }))));
   if (breakdown.length) sheets.push({ sheet: 'Detalle por vigencia', rows: breakdown, headers: Object.keys(breakdown[0]) });
   const tariffRows: ExportRow[] = (margins.tariffs ?? []).flatMap(t => PRODUCTS.map((k, i) => ({

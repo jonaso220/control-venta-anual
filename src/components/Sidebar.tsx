@@ -11,12 +11,12 @@ interface SidebarProps {
 }
 
 const NAV_ITEMS = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'dashboard', label: 'Resumen', icon: LayoutDashboard },
   { id: 'sales', label: 'Ventas', icon: ShoppingCart },
   { id: 'expenses', label: 'Gastos Fijos', icon: Receipt },
   { id: 'variable-expenses', label: 'Gastos Variables', icon: Wallet },
-  { id: 'prices', label: 'Márgenes', icon: DollarSign },
-  { id: 'settings', label: 'Configuracion', icon: Settings },
+  { id: 'prices', label: 'Precios y márgenes', icon: DollarSign },
+  { id: 'settings', label: 'Informes y respaldos', icon: Settings },
 ];
 
 const FOCUSABLE_SELECTOR = [
@@ -116,15 +116,16 @@ export default function Sidebar({ activeTab, onTabChange, open, onOpenChange }: 
           <img src="/icons/icon-64x64.png" alt="Logo" className="w-10 h-10 rounded-xl" />
           <div>
             <h1 className="font-bold text-slate-900 dark:text-slate-100 text-sm">Control de ventas anual</h1>
-            <p className="text-xs text-slate-400">Gestion de negocio</p>
+            <p className="text-xs text-slate-400">Gestión del negocio</p>
           </div>
         </div>
       </div>
 
-      <nav className="flex-1 p-4 space-y-1">
+      <nav aria-label="Secciones" className="flex-1 p-4 space-y-1">
         {NAV_ITEMS.map((item) => (
           <button
             key={item.id}
+            aria-current={activeTab === item.id ? "page" : undefined}
             onClick={() => handleNav(item.id)}
             className={`sidebar-link w-full ${activeTab === item.id ? 'active' : ''}`}
           >
@@ -157,7 +158,7 @@ export default function Sidebar({ activeTab, onTabChange, open, onOpenChange }: 
           className="sidebar-link w-full text-red-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/30"
         >
           <LogOut className="w-5 h-5" />
-          Cerrar sesion
+          Cerrar sesión
         </button>
       </div>
     </>

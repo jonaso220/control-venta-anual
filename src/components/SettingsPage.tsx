@@ -65,7 +65,7 @@ export default function SettingsPage({ year, onExportYearExcel, onRestoreComplet
     setStatus(null);
     try {
       await onExportYearExcel();
-      setStatus({ kind: 'success', text: `La exportación Excel de ${year} se descargó correctamente.` });
+      setStatus({ kind: 'success', text: `Se generó el Excel de ${year}. Comprueba el archivo en Descargas.` });
     } catch (error) {
       console.error('Error exporting yearly Excel:', error);
       setStatus({ kind: 'error', text: 'No se pudo generar la exportación Excel.' });
@@ -179,35 +179,27 @@ export default function SettingsPage({ year, onExportYearExcel, onRestoreComplet
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
-        <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Configuración</h2>
-        <p className="text-slate-500 dark:text-slate-400">Cuenta, exportaciones y respaldos</p>
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Informes y respaldos</h2>
+        <p className="text-slate-500 dark:text-slate-400">Excel para consultar un año; JSON para conservar y recuperar todos tus datos.</p>
       </div>
 
-      <div className="card">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
-            <User className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+
+        {status ? (
+          <div
+            role={status.kind === 'error' ? 'alert' : 'status'}
+            aria-live={status.kind === 'error' ? 'assertive' : 'polite'}
+            className={`mt-5 flex items-start gap-2 rounded-lg border p-3 text-sm ${
+              status.kind === 'error'
+                ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300'
+                : 'border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300'
+            }`}
+          >
+            {status.kind === 'error'
+              ? <CircleAlert className="w-4 h-4 shrink-0 mt-0.5" />
+              : <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />}
+            <span>{status.text}</span>
           </div>
-          <div>
-            <h3 className="font-semibold text-slate-900 dark:text-slate-100">Cuenta</h3>
-            <p className="text-xs text-slate-400">Información de tu cuenta de Google</p>
-          </div>
-        </div>
-        <div className="space-y-3 text-sm">
-          <div className="flex flex-col sm:flex-row sm:justify-between gap-1 py-2 border-b border-slate-100 dark:border-slate-700">
-            <span className="text-slate-500 dark:text-slate-400">Nombre</span>
-            <span className="font-medium text-slate-900 dark:text-slate-100 break-words">{user?.displayName || 'Sin nombre'}</span>
-          </div>
-          <div className="flex flex-col sm:flex-row sm:justify-between gap-1 py-2 border-b border-slate-100 dark:border-slate-700">
-            <span className="text-slate-500 dark:text-slate-400">Email</span>
-            <span className="font-medium text-slate-900 dark:text-slate-100 break-all">{user?.email}</span>
-          </div>
-          <div className="flex flex-col sm:flex-row sm:justify-between gap-1 py-2">
-            <span className="text-slate-500 dark:text-slate-400">UID</span>
-            <span className="font-mono text-xs text-slate-400 break-all">{user?.uid}</span>
-          </div>
-        </div>
-      </div>
+        ) : null}
 
       <div className="card">
         <div className="flex items-center gap-3 mb-4">
@@ -241,11 +233,11 @@ export default function SettingsPage({ year, onExportYearExcel, onRestoreComplet
           </div>
           <div>
             <h3 className="font-semibold text-slate-900 dark:text-slate-100">Respaldo completo JSON</h3>
-            <p className="text-xs text-slate-400">Todos los años, IDs y fechas normalizadas</p>
+            <p className="text-xs text-slate-400">Todos los años, incluidas vigencias e históricos</p>
           </div>
         </div>
         <p className="text-sm text-slate-600 dark:text-slate-300 mb-2">
-          Lee datos frescos directamente desde Firestore e incluye ventas, gastos fijos y variables,
+          Lee los datos guardados más recientes e incluye ventas, gastos fijos y variables,
           configuración de márgenes, historial de cambios y metas de todos los años.
         </p>
         <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
@@ -273,7 +265,7 @@ export default function SettingsPage({ year, onExportYearExcel, onRestoreComplet
             className="btn-primary flex items-center gap-2"
           >
             {busy === 'backup' ? <Loader2 className="w-4 h-4 animate-spin" /> : <DatabaseBackup className="w-4 h-4" />}
-            {busy === 'backup' ? 'Leyendo Firestore…' : 'Descargar respaldo completo'}
+            {busy === 'backup' ? 'Preparando respaldo…' : 'Descargar respaldo completo'}
           </button>
 
           <input
@@ -350,23 +342,36 @@ export default function SettingsPage({ year, onExportYearExcel, onRestoreComplet
           </div>
         ) : null}
 
-        {status ? (
-          <div
-            role={status.kind === 'error' ? 'alert' : 'status'}
-            aria-live={status.kind === 'error' ? 'assertive' : 'polite'}
-            className={`mt-5 flex items-start gap-2 rounded-lg border p-3 text-sm ${
-              status.kind === 'error'
-                ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300'
-                : 'border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300'
-            }`}
-          >
-            {status.kind === 'error'
-              ? <CircleAlert className="w-4 h-4 shrink-0 mt-0.5" />
-              : <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />}
-            <span>{status.text}</span>
-          </div>
-        ) : null}
+
       </div>
+      <details><summary className="cursor-pointer font-medium">Cuenta conectada</summary>
+      <div className="card">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
+            <User className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-slate-900 dark:text-slate-100">Cuenta</h3>
+            <p className="text-xs text-slate-400">Información de tu cuenta de Google</p>
+          </div>
+        </div>
+        <div className="space-y-3 text-sm">
+          <div className="flex flex-col sm:flex-row sm:justify-between gap-1 py-2 border-b border-slate-100 dark:border-slate-700">
+            <span className="text-slate-500 dark:text-slate-400">Nombre</span>
+            <span className="font-medium text-slate-900 dark:text-slate-100 break-words">{user?.displayName || 'Sin nombre'}</span>
+          </div>
+          <div className="flex flex-col sm:flex-row sm:justify-between gap-1 py-2 border-b border-slate-100 dark:border-slate-700">
+            <span className="text-slate-500 dark:text-slate-400">Email</span>
+            <span className="font-medium text-slate-900 dark:text-slate-100 break-all">{user?.email}</span>
+          </div>
+          <div className="flex flex-col sm:flex-row sm:justify-between gap-1 py-2">
+            <span className="text-slate-500 dark:text-slate-400">UID</span>
+            <span className="font-mono text-xs text-slate-400 break-all">{user?.uid}</span>
+          </div>
+        </div>
+      </div>
+
+      </details>
     </div>
   );
 }

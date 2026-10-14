@@ -821,3 +821,38 @@ test('servicio real guarda vigencias y ventas, y respaldo v3 restaura sin perder
   const conflicting = structuredClone(backup); conflicting.collections.sales[0].data.allocations[0].marginSnapshot.sifones = 1;
   await assert.rejects(restoreFullBackupToFirestore(bob, 'bob', conflicting), /otro desglose histórico|vigencia ausente o incompatible/);
 });
+
+test('margen anterior sin precio público: guarda, protege el snapshot y restaura en otra cuenta', async () => {
+  const { monthPeriods, sumUnits, salesAmounts } = await import('../src/domain/pricing.ts');
+  const { saveSalesEntry } = await import('../src/services/firestore.ts');
+  const db = dbFor('alice');
+  const a = n => ({ sifones: n, litros6: n, litros12: n, litros20: n });
+  const prices = { ...a(9), tariffs: [{ effectiveFrom: '2026-10-12', margins: a(3), publicPrices: a(12) }] };
+  const configRef = doc(db, 'users/alice/config/prices-2026');
+  await assertSucceeds(setDoc(configRef, { ...prices, updatedAt: serverTimestamp() }));
+  const saleRef = doc(db, 'users/alice/sales/2026-10');
+  const legacy = { year: 2026, month: 10, ...a(0), sifones: 10, marginSnapshot: a(2) };
+  await assertSucceeds(setDoc(saleRef, { ...legacy, updatedAt: serverTimestamp() }));
+  const allocations = monthPeriods(prices, 2026, 10, legacy.marginSnapshot);
+  allocations[0].sifones = 4; allocations[1].sifones = 6;
+  const forged = structuredClone(allocations); forged[0].marginSnapshot.sifones = 99;
+  await assertFails(updateDoc(saleRef, { allocations: forged, updatedAt: serverTimestamp() }));
+  const fakePublic = structuredClone(allocations); fakePublic[0].publicPriceSnapshot = a(10);
+  await assertFails(updateDoc(saleRef, { allocations: fakePublic, updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(dbFor('bob'), 'users/alice/sales/2026-10'), { allocations, updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(dbFor('alice', { appAccess: false }), 'users/alice/sales/2026-10'), { allocations, updatedAt: serverTimestamp() }));
+  const saved = await saveSalesEntry('alice', { year: 2026, month: 10, ...sumUnits(allocations), allocations }, db);
+  assert.deepEqual(saved.marginSnapshot, a(2));
+  assert.deepEqual(salesAmounts(saved), { revenue: 72, company: 54, unknownUnits: 4 });
+  const edited = structuredClone(saved); edited.allocations[0].sifones = 5; edited.sifones = 11;
+  await assertSucceeds(saveSalesEntry('alice', edited, db));
+  const backup = restoreBackup({ sales: [{ id: '2026-10', data: { ...legacy, allocations, updatedAt: backupTimestamp }, timestampPaths: ['/updatedAt'] }] });
+  backup.schemaVersion = 4;
+  backup.collections.config = [{ id: 'prices-2026', data: { ...prices, updatedAt: backupTimestamp }, timestampPaths: ['/updatedAt'] }];
+  backup.counts.config = 1; backup.counts.total += 1;
+  const bob = dbFor('bob');
+  await assertSucceeds(restoreFullBackupToFirestore(bob, 'bob', backup));
+  assert.deepEqual((await getDoc(doc(bob, 'users/bob/sales/2026-10'))).data().allocations, allocations);
+  const badBackup = structuredClone(backup); badBackup.collections.sales[0].data.allocations[0].marginSnapshot.sifones = 99;
+  await assert.rejects(restoreFullBackupToFirestore(bob, 'bob', badBackup), /vigencia ausente o incompatible/);
+});

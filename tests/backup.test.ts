@@ -21,7 +21,7 @@ const emptyCounts = {
 
 function emptyBackup(): FullBackup {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     app: 'control-venta-anual',
     exportedAt: timestamp,
     years: [],
@@ -125,9 +125,9 @@ test('acepta un respaldo vacio con esquema y conteos coherentes', () => {
   assert.deepEqual(validateFullBackup(emptyBackup()), emptyBackup());
 });
 
-test('acepta respaldos v1 y los normaliza a v3 sin inventar versiones', () => {
+test('acepta respaldos v1 y los normaliza a v4 sin inventar versiones', () => {
   const validated = validateFullBackup(legacyEmptyBackup());
-  assert.equal(validated.schemaVersion, 3);
+  assert.equal(validated.schemaVersion, 4);
   assert.deepEqual(validated.collections.fixedExpenseVersions, []);
   assert.equal(validated.counts.fixedExpenseVersions, 0);
 });
@@ -230,7 +230,7 @@ test('conserva vigencias y desgloses en el respaldo v3; sigue aceptando v2', asy
   backup.collections.sales.push({ id: '2026-10', data: { year: 2026, month: 10, ...sumUnits(allocations), marginSnapshot: amounts(2), allocations, updatedAt: timestamp } as unknown as import('../src/services/backup.ts').BackupObject, timestampPaths: ['/updatedAt'] });
   backup.counts = { ...emptyCounts, config: 1, sales: 1, total: 2 };
   assert.deepEqual(validateFullBackup(backup), backup);
-  assert.equal(validateFullBackup({ ...emptyBackup(), schemaVersion: 2 }).schemaVersion, 3);
+  assert.equal(validateFullBackup({ ...emptyBackup(), schemaVersion: 2 }).schemaVersion, 4);
   backup.collections.sales[0].data.sifones = 4;
   assert.throws(() => validateFullBackup(backup), /totales/);
 });

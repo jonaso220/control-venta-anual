@@ -35,7 +35,7 @@ export function validateTariffs(value: unknown, year: number): asserts value is 
     }
   });
 }
-export function monthPeriods(prices: PriceConfig, year: number, month: number): SalesAllocation[] {
+export function monthPeriods(prices: PriceConfig, year: number, month: number, legacyMargins: ProductAmounts = prices): SalesAllocation[] {
   const prefix = `${year}-${String(month).padStart(2, '0')}`;
   const first = `${prefix}-01`;
   const last = `${prefix}-${new Date(Date.UTC(year, month, 0)).getUTCDate()}`;
@@ -44,16 +44,16 @@ export function monthPeriods(prices: PriceConfig, year: number, month: number): 
   if (starts.length > MAX_MONTH_PERIODS) throw new Error('Se admiten hasta dos tramos de vigencia por mes.');
   return starts.map((from, index) => {
     const tariff = tariffs.findLast(t => t.effectiveFrom <= from);
-    if (!tariff) throw new Error(`Falta un precio vigente el ${from}. Añade la vigencia anterior con sus valores reales.`);
     const end = index + 1 < starts.length ? new Date(`${starts[index + 1]}T00:00:00Z`) : null;
     end?.setUTCDate(end.getUTCDate() - 1);
-    return { ...emptyAmounts(), tariffFrom: tariff.effectiveFrom, from, to: end ? end.toISOString().slice(0, 10) : last,
-      marginSnapshot: { ...tariff.margins }, publicPriceSnapshot: { ...tariff.publicPrices } };
+    return { ...emptyAmounts(), tariffFrom: tariff?.effectiveFrom ?? null, from, to: end ? end.toISOString().slice(0, 10) : last,
+      marginSnapshot: Object.fromEntries(PRODUCTS.map(k => [k, tariff?.margins[k] ?? legacyMargins[k]])) as unknown as ProductAmounts, publicPriceSnapshot: tariff ? { ...tariff.publicPrices } : null };
   });
 }
 export function samePeriods(a: SalesAllocation[], b: SalesAllocation[]): boolean {
   return a.length === b.length && a.every((p, i) => p.tariffFrom === b[i].tariffFrom && p.from === b[i].from && p.to === b[i].to
-    && sameAmounts(p.marginSnapshot, b[i].marginSnapshot) && sameAmounts(p.publicPriceSnapshot, b[i].publicPriceSnapshot));
+    && sameAmounts(p.marginSnapshot, b[i].marginSnapshot) && (p.publicPriceSnapshot === null || b[i].publicPriceSnapshot === null
+      ? p.publicPriceSnapshot === b[i].publicPriceSnapshot : sameAmounts(p.publicPriceSnapshot, b[i].publicPriceSnapshot!)));
 }
 export function sumUnits(rows: ProductAmounts[]): ProductAmounts {
   return Object.fromEntries(PRODUCTS.map(k => [k, rows.reduce((total, row) => total + row[k], 0)])) as unknown as ProductAmounts;
@@ -67,10 +67,11 @@ export function validateAllocations(entry: SalesEntry): void {
   let next = `${prefix}-01`;
   for (const row of rows) {
     const units = Object.fromEntries(PRODUCTS.map(k => [k, row[k]]));
-    if (Object.keys(row).length !== 9 || !validDate(row.tariffFrom) || row.tariffFrom > row.from || !validDate(row.from) || !validDate(row.to)
+    if (Object.keys(row).length !== 9 || (row.tariffFrom !== null && (!validDate(row.tariffFrom) || row.tariffFrom > row.from)) || !validDate(row.from) || !validDate(row.to)
       || row.from !== next || row.to < row.from || !row.to.startsWith(prefix)
-      || !validAmounts(units, true) || !validAmounts(row.marginSnapshot) || !validAmounts(row.publicPriceSnapshot)
-      || PRODUCTS.some(k => row.marginSnapshot[k] > row.publicPriceSnapshot[k])) throw new Error('Desglose inválido: revisa fechas, unidades y precios.');
+      || !validAmounts(units, true) || !validAmounts(row.marginSnapshot)
+      || (row.tariffFrom === null ? row.publicPriceSnapshot !== null
+        : !validAmounts(row.publicPriceSnapshot) || PRODUCTS.some(k => row.marginSnapshot[k] > row.publicPriceSnapshot![k]))) throw new Error('Desglose inválido: revisa fechas, unidades y precios.');
     const following = new Date(`${row.to}T00:00:00Z`);
     following.setUTCDate(following.getUTCDate() + 1);
     next = following.toISOString().slice(0, 10);
@@ -82,7 +83,7 @@ export function prepareAllocatedSale(entry: SalesEntry, existing: SalesEntry | u
   validateAllocations(entry);
   const rows = entry.allocations!;
   const unchangedPeriods = existing?.allocations && samePeriods(rows, existing.allocations);
-  if (!unchangedPeriods && !samePeriods(rows, monthPeriods(prices, entry.year, entry.month))) {
+  if (!unchangedPeriods && !samePeriods(rows, monthPeriods(prices, entry.year, entry.month, existing?.marginSnapshot ?? prices))) {
     throw new Error('Las vigencias cambiaron. Recarga y revisa el desglose antes de guardar.');
   }
   if (existing && !unchangedPeriods && !sameAmounts(entry, existing)) {
@@ -93,9 +94,15 @@ export function prepareAllocatedSale(entry: SalesEntry, existing: SalesEntry | u
 export function salesAmounts(entry: SalesEntry | undefined): { revenue: number; company: number; unknownUnits: number } {
   if (!entry) return { revenue: 0, company: 0, unknownUnits: 0 };
   if (!entry.allocations) return { revenue: 0, company: 0, unknownUnits: PRODUCTS.reduce((n, k) => n + entry[k], 0) };
-  let revenue = 0; let margin = 0;
+  let revenue = 0; let margin = 0; let unknownUnits = 0;
   for (const row of entry.allocations) for (const k of PRODUCTS) {
+    if (row.publicPriceSnapshot === null) { unknownUnits += row[k]; continue; }
     revenue += row[k] * row.publicPriceSnapshot[k]; margin += row[k] * row.marginSnapshot[k];
   }
-  return { revenue: money(revenue), company: money(revenue - margin), unknownUnits: 0 };
+  return { revenue: money(revenue), company: money(revenue - margin), unknownUnits };
+}
+
+export function localDate() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }

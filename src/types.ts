@@ -24,11 +24,12 @@ export interface PriceTariff {
 }
 
 export interface SalesAllocation extends ProductAmounts {
-  tariffFrom: string;
+  /** null: margen anterior conservado, sin tarifa de precio público registrada. */
+  tariffFrom: string | null;
   from: string;
   to: string;
   marginSnapshot: ProductAmounts;
-  publicPriceSnapshot: ProductAmounts;
+  publicPriceSnapshot: ProductAmounts | null;
 }
 
 export interface PriceConfig extends ProductAmounts {

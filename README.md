@@ -115,8 +115,26 @@ por mes. El límite mantiene las validaciones dentro del presupuesto de reglas d
 Firestore. Se requiere coordinación del cliente y `firestore.rules` para activar
 la función; esta mejora local no publica ni migra datos de producción.
 
-El respaldo JSON v3 conserva vigencias y desgloses y admite los respaldos v1/v2.
+El respaldo JSON v4 conserva vigencias, desgloses y precios anteriores desconocidos y admite los respaldos v1/v2/v3.
 La restauración valida referencias y conflictos antes de escribir, conserva
 vigencias existentes y agrega las faltantes individualmente. Si se interrumpe,
 puede reintentarse; un archivo viejo no elimina tarifas ni sustituye un desglose
-histórico ya guardado. Los respaldos v3 no deben abrirse en clientes anteriores.
+histórico ya guardado. Los respaldos v4 no deben abrirse en clientes anteriores.
+
+
+### Revisión local de períodos y valores anteriores
+
+La pantalla de precios presenta tarjetas equivalentes por período, destaca la vigencia de hoy y separa el formulario de cambio. Los valores anuales anteriores se muestran como márgenes conservados; el registro de ajustes distingue fecha de guardado de fecha de vigencia. Seleccionar una fecha de cambio precarga los importes conocidos aplicables a esa fecha.
+
+El desglose anterior a la primera tarifa ya no exige volver a registrar un margen conocido: usa primero el `marginSnapshot` del mes, o la configuración anual cuando no existe snapshot. Si no se registró precio público, se persiste explícitamente `tariffFrom: null` y `publicPriceSnapshot: null`, manteniendo el margen. No se representa como precio cero. La ganancia incluye todos los tramos; venta al público y empresa incluyen subtotales conocidos y unidades sin precio. Las tarifas completas ya existentes se reutilizan con sus valores reales. No hay migración al abrir la aplicación ni distribución diaria automática; el usuario confirma el reparto mensual y conserva sus totales.
+
+Este formato requiere publicar conjuntamente el frontend y las reglas candidatas: la única ampliación de reglas admite ese tramo sin precio público cuando su margen coincide exactamente con el snapshot raíz de la venta. Conserva `appAccess`, aislamiento por UID, totales, snapshots inmutables y límites de dos tramos/24 vigencias. Los respaldos nuevos son v4; se aceptan v1, v2 y v3 y se conservan los valores nulos en la restauración. No usar clientes anteriores para editar nuevos desgloses v4. No se modifican los precios cargados ni las ventas reales mediante esta revisión.
+
+
+### Revisión general de uso
+
+La navegación distingue Resumen, Ventas, Precios y márgenes e Informes y respaldos. El año se selecciona directamente; Gastos fijos muestra el mes desde el que se aplican cambios y evita sugerir que depende del año consultado. Los resúmenes principales preceden al detalle, y las tablas de importes y valores de gráficos se pueden desplegar cuando hacen falta.
+
+Ventas y gastos muestran validaciones y errores de guardado junto al formulario, conservan el borrador al fallar y bloquean controles durante el guardado. Los filtros tienen una salida explícita y distinguen resultados vacíos de ausencia de datos. Excel y JSON explican sus propósitos distintos; se mantienen las comprobaciones y los dos pasos de restauración. Se añadieron foco visible, acceso directo al contenido, tamaños táctiles y respeto por movimiento reducido. Los borradores no se persisten entre recargas ni cambios de sección.
+
+Validación de esta revisión: lint, TypeScript, build y presupuesto de bundle; 44 pruebas unitarias, 28 de interfaz y 26 de reglas en emulador. Revisión visual e interacción en Chrome del Mac, escritorio y viewport móvil 390×844, usando exclusivamente un entorno local con datos sintéticos y persistencia en memoria. La restauración real se probó en emulador; la revisión visual no hizo escrituras ni restauraciones en producción.

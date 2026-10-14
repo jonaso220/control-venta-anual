@@ -117,16 +117,15 @@ export default function Dashboard({ sales, prices, expenses, variableExpenses, y
 
   return (
     <div className="space-y-6">
-      <SalesAmountsSummary sales={sales} prices={prices} year={year} />
       <div>
-        <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Dashboard</h2>
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Resumen del negocio</h2>
         <p className="text-slate-500 dark:text-slate-400">{periodLabel}</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="stat-card">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Margen bruto acumulado</span>
+            <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Ganancia propia antes de gastos</span>
             <div className="w-8 h-8 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
               <DollarSign className="w-4 h-4 text-green-600 dark:text-green-400" />
             </div>
@@ -175,6 +174,9 @@ export default function Dashboard({ sales, prices, expenses, variableExpenses, y
         </div>
       </div>
 
+      {sales.length === 0 && <div className="card text-sm text-slate-600 dark:text-slate-300"><p className="font-semibold">Todavía no hay ventas registradas en {year}.</p><p>Abre Ventas para registrar un mes. Los gastos configurados pueden aparecer aunque todavía no hayas cargado ventas.</p></div>}
+      <details className="card"><summary className="font-semibold cursor-pointer">Ver importes al público y para la empresa</summary><div className="mt-4"><SalesAmountsSummary sales={sales} prices={prices} year={year} /></div></details>
+      <p className="text-xs text-slate-500 dark:text-slate-400">Los gráficos siguen el período indicado arriba. Las proyecciones son estimaciones; no son ventas ni pagos confirmados.</p>
       <SectionErrorBoundary resetKey={`${year}:${chartData.length}`} message="No se pudieron cargar los gráficos.">
         <Suspense fallback={<DashboardChartsFallback />}>
           <DashboardCharts chartData={chartData} expensesByCategory={expensesByCategory} />
@@ -185,7 +187,7 @@ export default function Dashboard({ sales, prices, expenses, variableExpenses, y
         <div className="card">
           <div className="flex items-center gap-2 mb-4">
             <BarChart3 className="w-5 h-5 text-slate-400" />
-            <h3 className="font-semibold text-slate-900 dark:text-slate-100">Metas de Venta</h3>
+            <h3 className="font-semibold text-slate-900 dark:text-slate-100">Metas de ganancia propia</h3>
           </div>
           <div className="space-y-3">
             {goals.map(goal => {

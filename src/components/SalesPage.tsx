@@ -1,3 +1,5 @@
+import { saveErrorMessage } from '../domain/feedback';
+import { validAmounts } from '../domain/pricing';
 import SalesBreakdown from './SalesBreakdown';
 import SalesAmountsSummary from './SalesAmountsSummary';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -42,6 +44,7 @@ export default function SalesPage({
   const [editingMonth, setEditingMonth] = useState<number | null>(null);
   const [form, setForm] = useState({ sifones: 0, litros6: 0, litros12: 0, litros20: 0 });
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const salesMap = useMemo(() => {
     const map = new Map<number, SalesEntry>();
@@ -67,6 +70,7 @@ export default function SalesPage({
   const canSaveEditing = !existingEditingEntry?.allocations && Boolean(existingEditingEntry || !prices.tariffs?.length) && (marginsConfigured || isValidProductAmounts(existingEditingEntry?.marginSnapshot));
 
   function startEditing(month: number) {
+    setSaveError('');
     const existing = salesMap.get(month);
     if (existing?.allocations || (!existing && prices.tariffs?.length)) {
       setBreakdownMonth(month);
@@ -87,7 +91,8 @@ export default function SalesPage({
     const existing = salesMap.get(editingMonth);
     if (!marginsConfigured && !isValidProductAmounts(existing?.marginSnapshot)) return;
 
-    setSaving(true);
+    if (!validAmounts(form, true)) { setSaveError("Introduce unidades enteras entre 0 y mil millones."); return; }
+    setSaveError(''); setSaving(true);
     try {
       await onSave(freezeSalesMargins({
         year,
@@ -96,8 +101,8 @@ export default function SalesPage({
         marginSnapshot: existing?.marginSnapshot,
       }, prices));
       setEditingMonth(null);
-    } catch {
-      // Error handled by parent
+    } catch (error) {
+      setSaveError(saveErrorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -108,8 +113,6 @@ export default function SalesPage({
 
   return (
     <div className="space-y-6">
-      <div id="sales-breakdown"><SalesBreakdown key={`${year}-${breakdownMonth}`} month={breakdownMonth} onMonthChange={setBreakdownMonth} year={year} prices={prices} sales={sales} onSave={onSave} /></div>
-      <SalesAmountsSummary year={year} sales={sales} prices={prices} />
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Ventas</h2>
@@ -139,6 +142,9 @@ export default function SalesPage({
         </div>
       </div>
 
+      <p className="text-sm text-slate-500 dark:text-slate-400">Registra cantidades por mes. Si cambió el precio dentro del mes, reparte las unidades en los tramos que corresponden. La ganancia acumulada incluye los meses transcurridos.</p>
+      {saveError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300">{saveError}</p>}
+      <div id="sales-breakdown"><SalesBreakdown key={`${year}-${breakdownMonth}`} month={breakdownMonth} onMonthChange={setBreakdownMonth} year={year} prices={prices} sales={sales} onSave={onSave} /></div>
       {!marginsConfigured && (
         <div role="alert" className="flex flex-col gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-100 sm:flex-row sm:items-start">
           <div className="flex items-start gap-3 sm:flex-1">
@@ -149,11 +155,13 @@ export default function SalesPage({
             </div>
           </div>
           <button onClick={onOpenMargins} className="btn-secondary self-start !border-amber-300 !bg-white/80 !py-2 !px-3 text-xs dark:!border-amber-700 dark:!bg-slate-900/40">
-            Ir a Márgenes
+            Ir a Precios y márgenes
           </button>
         </div>
       )}
 
+      <details className="card"><summary className="font-semibold cursor-pointer">Ver importes al público y para la empresa</summary><div className="mt-4"><SalesAmountsSummary year={year} sales={sales} prices={prices} /></div></details>
+      <p className="text-xs text-slate-500 dark:text-slate-400">Los meses sin registro muestran cero unidades. «Editar» cambia el total conservando su margen; el desglose permite aplicar distintos precios con confirmación.</p>
       {/* Mobile card view */}
       <div className="md:hidden space-y-3">
         {Array.from({ length: 12 }, (_, i) => i + 1).map(month => {
@@ -170,6 +178,7 @@ export default function SalesPage({
                 <h4 className="font-semibold text-slate-900 dark:text-slate-100">{MONTHS[month - 1]}</h4>
                 {!isEditing && (
                   <button
+                    disabled={saving}
                     onClick={() => startEditing(month)}
                     className="btn-secondary !py-1.5 !px-3 text-xs"
                     aria-label={`Editar ventas de ${MONTHS[month - 1]}`}
@@ -208,7 +217,7 @@ export default function SalesPage({
                       <Save className="w-4 h-4" />
                       {saving ? 'Guardando...' : 'Guardar'}
                     </button>
-                    <button onClick={() => setEditingMonth(null)} className="btn-secondary !py-2">
+                    <button onClick={() => setEditingMonth(null)} disabled={saving} className="btn-secondary !py-2">
                       Cancelar
                     </button>
                   </div>
@@ -319,7 +328,7 @@ export default function SalesPage({
                             <Save className="w-3 h-3" />
                             {saving ? 'Guardando...' : 'Guardar'}
                           </button>
-                          <button onClick={() => setEditingMonth(null)} className="btn-secondary !py-1.5 !px-3 text-xs">
+                          <button onClick={() => setEditingMonth(null)} disabled={saving} className="btn-secondary !py-1.5 !px-3 text-xs">
                             Cancelar
                           </button>
                         </div>
@@ -337,7 +346,8 @@ export default function SalesPage({
                       </td>
                       <td className="px-4 sm:px-6 py-3 text-center">
                         <button
-                          onClick={() => startEditing(month)}
+                          disabled={saving}
+                    onClick={() => startEditing(month)}
                           className="btn-secondary !py-1.5 !px-3 text-xs"
                           aria-label={`Editar ventas de ${MONTHS[month - 1]}`}
                         >
@@ -451,7 +461,7 @@ function GoalsSection({ goals, year, onSaveGoal, monthlyData }: {
                     <button onClick={handleSave} disabled={saving} className="btn-primary !py-1 !px-2 text-xs">
                       {saving ? '...' : 'Guardar'}
                     </button>
-                    <button onClick={() => setEditingMonth(null)} className="btn-secondary !py-1 !px-2 text-xs" aria-label={`Cancelar edición de meta de ${name}`}>X</button>
+                    <button onClick={() => setEditingMonth(null)} disabled={saving} className="btn-secondary !py-1 !px-2 text-xs" aria-label={`Cancelar edición de meta de ${name}`}>X</button>
                   </div>
                 </div>
               ) : (

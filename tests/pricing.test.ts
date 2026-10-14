@@ -19,8 +19,8 @@ test('12 de octubre es inclusivo, sin reparto diario inventado', () => {
     ['2026-10-01', '2026-10-11', 2], ['2026-10-12', '2026-10-31', 3],
   ]);
   assert.deepEqual(sumUnits(rows), amounts(0));
-  assert.equal(monthPeriods(prices, 2026, 11)[0].publicPriceSnapshot.sifones, 12);
-  assert.throws(() => monthPeriods(prices, 2027, 1), /Falta/);
+  assert.equal(monthPeriods(prices, 2026, 11)[0].publicPriceSnapshot!.sifones, 12);
+  assert.equal(monthPeriods(amounts(0), 2027, 1)[0].publicPriceSnapshot, null);
 });
 test('las ventas congeladas concilian público = propio + empresa y alimentan neto', () => {
   const entry = october();
@@ -49,7 +49,7 @@ test('rechaza huecos, solapamientos, fracciones de unidades, precios negativos y
   for (const mutate of [
     (s: SalesEntry) => { s.allocations![1].from = '2026-10-11'; },
     (s: SalesEntry) => { s.allocations![0].sifones = 1.5; },
-    (s: SalesEntry) => { s.allocations![0].publicPriceSnapshot.sifones = -1; },
+    (s: SalesEntry) => { s.allocations![0].publicPriceSnapshot!.sifones = -1; },
     (s: SalesEntry) => { s.allocations![1].to = '2026-10-32'; },
   ]) { const entry = october(); mutate(entry); assert.throws(() => validateAllocations(entry)); }
   assert.throws(() => validateTariffs([{ effectiveFrom: '2026-02-30', margins: amounts(1), publicPrices: amounts(2) }], 2026));
@@ -62,4 +62,32 @@ test('mes bisiesto, cambio el primer día y céntimos se resuelven sin UTC local
   const entry = { year: 2024, month: 2, ...sumUnits(rows), allocations: rows };
   assert.equal(rows[0].to, '2024-02-29'); validateAllocations(entry);
   assert.deepEqual(salesAmounts(entry), { revenue: 0.9, company: 0.6, unknownUnits: 0 });
+});
+
+test('sin vigencia anterior conserva el snapshot del mes y no inventa precio público', () => {
+  const config = { ...amounts(9), tariffs: prices.tariffs!.slice(1) };
+  const legacy = { ...amounts(0), sifones: 10, year: 2026, month: 10, marginSnapshot: amounts(2) };
+  const rows = monthPeriods(config, 2026, 10, legacy.marginSnapshot);
+  assert.equal(rows[0].tariffFrom, null);
+  assert.equal(rows[0].publicPriceSnapshot, null);
+  assert.deepEqual(rows[0].marginSnapshot, amounts(2));
+  assert.deepEqual(sumUnits(rows), amounts(0));
+  rows[0].sifones = 4; rows[1].sifones = 6;
+  const saved = prepareAllocatedSale({ year: 2026, month: 10, ...sumUnits(rows), allocations: rows }, legacy, config);
+  assert.equal(calculateSalesMargin(saved, config), 26);
+  assert.deepEqual(salesAmounts(saved), { revenue: 72, company: 54, unknownUnits: 4 });
+  assert.deepEqual(saved.marginSnapshot, legacy.marginSnapshot);
+  assert.equal(calculateSalesMargin(legacy, config), 20); // original unchanged
+  const newer = { ...config, tariffs: prices.tariffs };
+  assert.doesNotThrow(() => prepareAllocatedSale(saved, saved, newer)); // no silent retroactive pricing
+  const forged = structuredClone(saved); forged.allocations![0].publicPriceSnapshot = amounts(10);
+  assert.throws(() => validateAllocations(forged));
+});
+
+test('con precio anterior real usa la tarifa guardada, incluido precio cero', () => {
+  const config = { ...amounts(9), tariffs: [{ effectiveFrom: '2026-01-01', margins: amounts(0), publicPrices: amounts(0) }, prices.tariffs![1]] };
+  const rows = monthPeriods(config, 2026, 10, amounts(2)); rows[0].sifones = 4;
+  assert.deepEqual(rows[0].publicPriceSnapshot, amounts(0));
+  assert.deepEqual(rows[0].marginSnapshot, amounts(0));
+  assert.deepEqual(salesAmounts({ year: 2026, month: 10, ...sumUnits(rows), allocations: rows }), { revenue: 0, company: 0, unknownUnits: 0 });
 });

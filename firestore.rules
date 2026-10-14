@@ -134,7 +134,7 @@ service cloud.firestore {
       return row.keys().hasOnly(['from', 'to', 'tariffFrom', 'sifones', 'litros6', 'litros12', 'litros20', 'marginSnapshot', 'publicPriceSnapshot'])
         && row.from.matches('^' + prefix + '-(0[1-9]|[12][0-9]|3[01])$')
         && row.to.matches('^' + prefix + '-(0[1-9]|[12][0-9]|3[01])$')
-        && row.tariffFrom <= row.from && row.from <= row.to
+        && (row.tariffFrom == null || row.tariffFrom <= row.from) && row.from <= row.to
         && (i == 0 ? row.from == prefix + '-01' : int(row.from[8:10]) == int(rows[i-1].to[8:10]) + 1)
         && row.sifones is int && row.sifones >= 0
         && row.litros6 is int && row.litros6 >= 0
@@ -162,14 +162,15 @@ service cloud.firestore {
         && rows[0].diff(old[0]).affectedKeys().hasOnly(['sifones','litros6','litros12','litros20'])
         && (rows.size() < 2 || rows[1].diff(old[1]).affectedKeys().hasOnly(['sifones','litros6','litros12','litros20']));
     }
-    function tariffMatches(row, tariffs) {
-      return tariffs.hasAny([{'effectiveFrom': row.tariffFrom, 'margins': row.marginSnapshot, 'publicPrices': row.publicPriceSnapshot}]);
+    function tariffMatches(row, tariffs, legacyMargins) {
+      return (row.tariffFrom == null && row.publicPriceSnapshot == null && row.marginSnapshot == legacyMargins)
+        || tariffs.hasAny([{'effectiveFrom': row.tariffFrom, 'margins': row.marginSnapshot, 'publicPrices': row.publicPriceSnapshot}]);
     }
     function allocationTariffsMatch(data, uid) {
       let tariffs = getAfter(/databases/$(database)/documents/users/$(uid)/config/$("prices-" + string(data.year))).data.get('tariffs', []);
       let rows = data.allocations;
-      return tariffMatches(rows[0], tariffs)
-        && (rows.size() < 2 || tariffMatches(rows[1], tariffs));
+      return tariffMatches(rows[0], tariffs, data.marginSnapshot)
+        && (rows.size() < 2 || tariffMatches(rows[1], tariffs, data.marginSnapshot));
     }
     function sameSaleUnits(a, b) {
       return a.sifones == b.sifones && a.litros6 == b.litros6 && a.litros12 == b.litros12 && a.litros20 == b.litros20;

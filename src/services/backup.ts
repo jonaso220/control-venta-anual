@@ -12,7 +12,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 
-export const BACKUP_SCHEMA_VERSION = 3 as const;
+export const BACKUP_SCHEMA_VERSION = 4 as const;
 export const BACKUP_APP_ID = 'control-venta-anual' as const;
 const LEGACY_BACKUP_SCHEMA_VERSION = 1 as const;
 
@@ -353,6 +353,7 @@ export function validateFullBackup(value: unknown): FullBackup {
 
   if (
     root.schemaVersion !== BACKUP_SCHEMA_VERSION
+    && root.schemaVersion !== 3
     && root.schemaVersion !== 2
     && root.schemaVersion !== LEGACY_BACKUP_SCHEMA_VERSION
   ) {
@@ -433,8 +434,10 @@ function validatePricingConsistency(collections: FullBackup['collections']): voi
     const config = collections.config.find(c => c.id === `prices-${sale.data.year}`);
     const tariffs = (config?.data.tariffs ?? []) as unknown as PriceTariff[];
     for (const row of sale.data.allocations as unknown as SalesAllocation[]) {
+      if (row.tariffFrom === null && row.publicPriceSnapshot === null
+        && sameAmounts(row.marginSnapshot, sale.data.marginSnapshot as unknown as import('../types').ProductAmounts)) continue;
       if (!tariffs.some(t => t.effectiveFrom === row.tariffFrom
-        && sameAmounts(t.margins, row.marginSnapshot) && sameAmounts(t.publicPrices, row.publicPriceSnapshot))) {
+        && sameAmounts(t.margins, row.marginSnapshot) && row.publicPriceSnapshot !== null && sameAmounts(t.publicPrices, row.publicPriceSnapshot))) {
         throw new BackupValidationError(`La venta ${sale.id} referencia una vigencia ausente o incompatible. No se modificó ningún dato.`);
       }
     }

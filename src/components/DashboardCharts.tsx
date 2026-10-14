@@ -67,7 +67,7 @@ export default function DashboardCharts({ chartData, expensesByCategory }: Dashb
               <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" />
               <Tooltip
                 formatter={(value) => formatCurrency(Number(value))}
-                contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', color: '#0f172a', backgroundColor: '#fff' }}
               />
               <Legend />
               <Bar dataKey="margenBruto" name="Margen bruto" fill="#3b82f6" radius={[4, 4, 0, 0]} />
@@ -98,7 +98,7 @@ export default function DashboardCharts({ chartData, expensesByCategory }: Dashb
               <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" />
               <Tooltip
                 formatter={(value) => formatCurrency(Number(value))}
-                contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', color: '#0f172a', backgroundColor: '#fff' }}
               />
               <Line type="monotone" dataKey="resultado" name="Resultado neto" stroke="#10b981" strokeWidth={2} dot={{ fill: '#10b981' }} />
             </LineChart>
@@ -134,7 +134,7 @@ export default function DashboardCharts({ chartData, expensesByCategory }: Dashb
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
               <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="#94a3b8" />
               <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" />
-              <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+              <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', color: '#0f172a', backgroundColor: '#fff' }} />
               <Legend />
               <Bar dataKey="sifones" name="Sifones" fill="#6366f1" radius={[2, 2, 0, 0]} />
               <Bar dataKey="litros6" name="6 Litros" fill="#0ea5e9" radius={[2, 2, 0, 0]} />
@@ -166,15 +166,15 @@ export default function DashboardCharts({ chartData, expensesByCategory }: Dashb
                   data={expensesByCategory}
                   cx="50%"
                   cy="50%"
-                  outerRadius={100}
+                  outerRadius="65%"
                   dataKey="value"
-                  label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                  label={({ percent }) => `${((percent ?? 0) * 100).toFixed(0)}%`}
                 >
                   {expensesByCategory.map((entry, index) => (
                     <Cell key={index} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(value) => formatCurrency(Number(value))} />
+                <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} /><Tooltip contentStyle={{ color: '#0f172a', backgroundColor: '#fff' }} formatter={(value) => formatCurrency(Number(value))} />
               </PieChart>
             </ResponsiveContainer>
           ) : (
@@ -201,7 +201,7 @@ function ChartCard({ icon, title, children, accessibleContent }: {
         <h3 className="font-semibold text-slate-900 dark:text-slate-100">{title}</h3>
       </div>
       <div className="h-72" aria-hidden="true">{children}</div>
-      {accessibleContent}
+      <details className="mt-3"><summary aria-label={`Ver valores: ${title}`} className="cursor-pointer text-sm text-slate-600 dark:text-slate-300">Ver valores del gráfico</summary><div className="overflow-x-auto mt-3">{accessibleContent}</div></details>
     </div>
   );
 }
@@ -215,7 +215,7 @@ interface AccessibleDataTableProps {
 
 function AccessibleDataTable({ caption, headers, rows, emptyMessage }: AccessibleDataTableProps) {
   return (
-    <table className="sr-only">
+    <table className="w-full text-sm text-left [&_th]:p-2 [&_td]:p-2 [&_tr]:border-b [&_tr]:border-slate-200 dark:[&_tr]:border-slate-700">
       <caption>{caption}</caption>
       <thead>
         <tr>

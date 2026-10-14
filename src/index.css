@@ -60,3 +60,18 @@
 .animate-slide-in {
   animation: slide-in 0.2s ease-out;
 }
+
+
+@layer base {
+  :where(button, a, summary, select, input):focus-visible {
+    outline: 3px solid #3b82f6;
+    outline-offset: 3px;
+  }
+  button:disabled { cursor: not-allowed; opacity: .5; }
+  @media (pointer: coarse) {
+    button, summary, select { min-height: 44px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+  }
+}

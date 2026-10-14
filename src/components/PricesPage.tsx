@@ -1,4 +1,5 @@
 import PriceSchedule from './PriceSchedule';
+import PriceTimeline from './PriceTimeline';
 import { useState, useEffect } from 'react';
 import { Save, DollarSign, History, ChevronDown, ChevronUp } from 'lucide-react';
 import type { PriceConfig, PriceTariff } from '../types';
@@ -25,6 +26,7 @@ export default function PricesPage({ prices, onSave, year, history, onSaveTariff
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showChange, setShowChange] = useState(false);
 
   useEffect(() => {
     setForm(prices);
@@ -51,11 +53,17 @@ export default function PricesPage({ prices, onSave, year, history, onSaveTariff
 
   return (
     <div className="space-y-6">
-      {onSaveTariff && <PriceSchedule prices={prices} year={year} onSave={onSaveTariff} />}
-      <p className="text-sm text-slate-500">Márgenes anuales de compatibilidad: para registros antiguos sin desglose. No incluyen precio al público.</p>
+      <PriceTimeline prices={prices} year={year} />
+      {onSaveTariff && <section className="space-y-4">
+        <button className="btn-primary" aria-expanded={showChange} onClick={() => setShowChange(value => !value)}>{showChange ? 'Ocultar formulario de cambio' : 'Registrar cambio de precios'}</button>
+        {showChange && <PriceSchedule prices={prices} year={year} onSave={onSaveTariff} />}
+      </section>}
+      <details className="card space-y-4">
+      <summary className="font-medium cursor-pointer">Ajustar márgenes base anteriores</summary>
+      <p className="text-sm text-slate-500">Estos son los valores anteriores a las vigencias. Para un aumento nuevo usa «Registrar cambio de precios». Las ventas con margen guardado no se modifican.</p>
       <div>
-        <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Márgenes por unidad</h2>
-        <p className="text-slate-500 dark:text-slate-400">Configura cuánto margen deja cada unidad vendida - {year}</p>
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Márgenes anteriores</h2>
+        <p className="text-slate-500 dark:text-slate-400">Base del año {year}; no es el precio vigente nuevo.</p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 max-w-2xl">
@@ -74,6 +82,8 @@ export default function PricesPage({ prices, onSave, year, history, onSaveTariff
         {!hasChanges && !saved && <span className="text-sm text-slate-400">Sin cambios</span>}
       </div>
 
+      </details>
+
       {/* Margin history */}
       {history.length > 0 && (
         <div className="max-w-2xl">
@@ -82,11 +92,12 @@ export default function PricesPage({ prices, onSave, year, history, onSaveTariff
             className="flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
           >
             <History className="w-4 h-4" />
-            Historial de márgenes ({history.length})
+            Registro de ajustes de márgenes ({history.length})
             {showHistory ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
           {showHistory && (
             <div className="mt-3 space-y-2">
+              <p className="text-xs text-slate-500">Fechas de guardado de los márgenes anteriores; no son fechas de vigencia de precios.</p>
               {history.map((entry, i) => {
                 const date = entry.changedAt instanceof Date
                   ? entry.changedAt

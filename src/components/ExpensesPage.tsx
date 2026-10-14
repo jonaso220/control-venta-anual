@@ -1,3 +1,4 @@
+import { saveErrorMessage } from '../domain/feedback';
 import { useState, useMemo } from 'react';
 import { Plus, Pencil, Trash2, Save, Receipt, ArrowUpDown, ArrowUp, ArrowDown, Search } from 'lucide-react';
 import type { Expense, ExpenseCategory, ExpenseSnapshot } from '../types';
@@ -46,6 +47,8 @@ export default function ExpensesPage({ expenses, effectiveMonth, onSave, onDelet
   const [isAdding, setIsAdding] = useState(false);
   const [form, setForm] = useState(EMPTY_EXPENSE);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [savedMessage, setSavedMessage] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
@@ -104,6 +107,7 @@ export default function ExpensesPage({ expenses, effectiveMonth, onSave, onDelet
 
 
   function startEditing(expense: Expense) {
+    setSaveError(''); setSavedMessage('');
     setForm({
       name: expense.name,
       amount: expense.amount,
@@ -119,6 +123,7 @@ export default function ExpensesPage({ expenses, effectiveMonth, onSave, onDelet
   }
 
   function startAdding() {
+    setSaveError(''); setSavedMessage('');
     setForm(EMPTY_EXPENSE);
     setDraftId(createDraftId());
     setSaveEffectiveMonth(null);
@@ -127,6 +132,7 @@ export default function ExpensesPage({ expenses, effectiveMonth, onSave, onDelet
   }
 
   function cancel() {
+    setSaveError(''); setSavedMessage('');
     setEditingId(null);
     setIsAdding(false);
     setDraftId(null);
@@ -136,15 +142,16 @@ export default function ExpensesPage({ expenses, effectiveMonth, onSave, onDelet
 
   async function handleSave() {
     const documentId = editingId ?? draftId;
-    if (!form.name.trim() || form.amount <= 0 || !documentId) return;
+    if (!documentId) return;
+    if (!form.name.trim() || !Number.isFinite(form.amount) || form.amount <= 0 || form.amount > 1e12) { setSaveError('Completa el nombre o descripción y un importe mayor que cero (máximo un billón).'); return; }
     const operationMonth = saveEffectiveMonth ?? getCurrentYearMonth();
     setSaveEffectiveMonth(operationMonth);
-    setSaving(true);
+    setSaveError(''); setSavedMessage(''); setSaving(true);
     try {
       await onSave(form, documentId, operationMonth);
-      cancel();
-    } catch {
-      // Error handled by parent
+      cancel(); setSavedMessage('Gasto fijo guardado.');
+    } catch (error) {
+      setSaveError(saveErrorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -163,8 +170,8 @@ export default function ExpensesPage({ expenses, effectiveMonth, onSave, onDelet
         delete next[id];
         return next;
       });
-    } catch {
-      // Error handled by parent
+    } catch (error) {
+      setSaveError(saveErrorMessage(error, 'No se pudo completar el cambio.'));
     } finally {
       setDeletingId(null);
     }
@@ -179,12 +186,15 @@ export default function ExpensesPage({ expenses, effectiveMonth, onSave, onDelet
     otros: 'bg-slate-100 text-slate-700',
   };
 
+  const errorNotice = saveError ? <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300">{saveError}</p> : null;
   return (
     <div className="space-y-6">
+      {savedMessage && <p role="status" className="rounded-lg bg-green-50 p-3 text-green-800 dark:bg-green-900/20 dark:text-green-200">{savedMessage}</p>}
+      {!isAdding && !editingId && errorNotice}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Gastos Fijos</h2>
-          <p className="text-slate-500 dark:text-slate-400">Administra tus gastos mensuales</p>
+          <p className="text-slate-500 dark:text-slate-400">Gastos mensuales actuales; no dependen del año de consulta</p>
           <p className="text-xs text-slate-400 mt-1">
             Los cambios se aplican desde {formatEffectiveMonth(saveEffectiveMonth ?? effectiveMonth)}; el historial anterior se conserva.
           </p>
@@ -193,17 +203,18 @@ export default function ExpensesPage({ expenses, effectiveMonth, onSave, onDelet
           <div className="stat-card !p-3 !flex-row !items-center !gap-3">
             <Receipt className="w-4 h-4 text-red-500" />
             <div>
-              <p className="text-xs text-slate-400">Total Mensual</p>
+              <p className="text-xs text-slate-400">Total mensual activo</p>
               <p className="font-bold text-red-600">{formatCurrency(totalActive)}</p>
             </div>
           </div>
-          <button onClick={startAdding} className="btn-primary flex items-center gap-2">
+          <button onClick={startAdding} disabled={saving || isAdding || Boolean(editingId)} className="btn-primary flex items-center gap-2">
             <Plus className="w-4 h-4" />
             Agregar Gasto
           </button>
         </div>
       </div>
 
+      {(searchText || filterCategory || filterStatus) && <button className="btn-secondary text-sm" onClick={() => { setSearchText(''); setFilterCategory(''); setFilterStatus(''); }}>Limpiar filtros</button>}
       {/* Search and filters */}
       <div className="flex gap-2 sm:gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px] sm:max-w-xs">
@@ -229,13 +240,14 @@ export default function ExpensesPage({ expenses, effectiveMonth, onSave, onDelet
       {isAdding && (
         <div className="card border-blue-200 bg-blue-50/30 dark:bg-blue-900/10 dark:border-blue-800">
           <h3 className="font-semibold text-slate-900 dark:text-slate-100 mb-4">Nuevo Gasto</h3>
-          <FormFields idPrefix="fixed-new" form={form} setForm={setForm} />
+          <FormFields idPrefix="fixed-new" form={form} setForm={setForm} disabled={saving} />
+                  {errorNotice}
           <div className="flex gap-2 mt-4">
-            <button onClick={handleSave} disabled={saving || !form.name.trim()} className="btn-primary flex items-center gap-2">
+            <button onClick={handleSave} disabled={saving} className="btn-primary flex items-center gap-2">
               <Save className="w-4 h-4" />
               {saving ? 'Guardando...' : 'Guardar'}
             </button>
-            <button onClick={cancel} className="btn-secondary">Cancelar</button>
+            <button onClick={cancel} disabled={saving} className="btn-secondary">Cancelar</button>
           </div>
         </div>
       )}
@@ -244,7 +256,7 @@ export default function ExpensesPage({ expenses, effectiveMonth, onSave, onDelet
       <div className="md:hidden space-y-3">
         {sortedExpenses.length === 0 ? (
           <div className="card text-center text-slate-400 py-8">
-            No hay gastos registrados. Haz clic en "Agregar Gasto" para comenzar.
+            {expenses.length ? "No hay gastos que coincidan con estos filtros." : "Todavía no hay gastos fijos. Usa Agregar Gasto para comenzar."}
           </div>
         ) : (
           sortedExpenses.map(expense => {
@@ -252,13 +264,14 @@ export default function ExpensesPage({ expenses, effectiveMonth, onSave, onDelet
             if (isEditing) {
               return (
                 <div key={expense.id} className="card !p-4 border-blue-300 dark:border-blue-700 bg-blue-50/30 dark:bg-blue-900/10">
-                  <FormFields idPrefix={`fixed-mobile-${expense.id}`} form={form} setForm={setForm} />
+                  <FormFields idPrefix={`fixed-mobile-${expense.id}`} form={form} setForm={setForm} disabled={saving} />
+                  {errorNotice}
                   <div className="flex gap-2 mt-4">
-                    <button onClick={handleSave} disabled={saving || !form.name.trim()} className="btn-primary flex-1 flex items-center justify-center gap-2 !py-2">
+                    <button onClick={handleSave} disabled={saving} className="btn-primary flex-1 flex items-center justify-center gap-2 !py-2">
                       <Save className="w-4 h-4" />
                       {saving ? 'Guardando...' : 'Guardar'}
                     </button>
-                    <button onClick={cancel} className="btn-secondary !py-2">Cancelar</button>
+                    <button onClick={cancel} disabled={saving} className="btn-secondary !py-2">Cancelar</button>
                   </div>
                 </div>
               );
@@ -278,13 +291,13 @@ export default function ExpensesPage({ expenses, effectiveMonth, onSave, onDelet
                     </div>
                   </div>
                   <div className="flex gap-1 shrink-0">
-                    <button onClick={() => startEditing(expense)} className="btn-icon" title="Editar">
+                    <button onClick={() => startEditing(expense)} className="btn-icon" title="Editar" aria-label={`Editar ${expense.name}`} disabled={saving || isAdding || Boolean(editingId)}>
                       <Pencil className="w-4 h-4" />
                     </button>
                     {expense.isActive && (
                       <button
                         onClick={() => handleDelete(expense.id!)}
-                        disabled={deletingId === expense.id}
+                        disabled={saving || isAdding || Boolean(editingId) || deletingId === expense.id}
                         className="btn-icon !text-red-400 hover:!text-red-600 hover:!bg-red-50 dark:hover:!bg-red-900/30"
                         title="Desactivar desde este mes"
                       >
@@ -362,13 +375,14 @@ export default function ExpensesPage({ expenses, effectiveMonth, onSave, onDelet
                 return (
                   <tr key={expense.id} className="bg-blue-50 dark:bg-blue-900/20">
                     <td colSpan={7} className="px-6 py-4">
-                      <FormFields idPrefix={`fixed-desktop-${expense.id}`} form={form} setForm={setForm} />
+                      <FormFields idPrefix={`fixed-desktop-${expense.id}`} form={form} setForm={setForm} disabled={saving} />
+                  {errorNotice}
                       <div className="flex gap-2 mt-3">
-                        <button onClick={handleSave} disabled={saving || !form.name.trim()} className="btn-primary !py-1.5 !px-3 text-xs flex items-center gap-1">
+                        <button onClick={handleSave} disabled={saving} className="btn-primary !py-1.5 !px-3 text-xs flex items-center gap-1">
                           <Save className="w-3 h-3" />
                           {saving ? 'Guardando...' : 'Guardar'}
                         </button>
-                        <button onClick={cancel} className="btn-secondary !py-1.5 !px-3 text-xs">Cancelar</button>
+                        <button onClick={cancel} disabled={saving} className="btn-secondary !py-1.5 !px-3 text-xs">Cancelar</button>
                       </div>
                     </td>
                   </tr>
@@ -393,13 +407,13 @@ export default function ExpensesPage({ expenses, effectiveMonth, onSave, onDelet
                   <td className="px-6 py-3 text-slate-500 dark:text-slate-400 text-sm">{expense.notes || '-'}</td>
                   <td className="px-6 py-3 text-center">
                     <div className="flex gap-1 justify-center">
-                      <button onClick={() => startEditing(expense)} className="btn-icon" title="Editar">
+                      <button onClick={() => startEditing(expense)} className="btn-icon" title="Editar" aria-label={`Editar ${expense.name}`} disabled={saving || isAdding || Boolean(editingId)}>
                         <Pencil className="w-4 h-4" />
                       </button>
                       {expense.isActive && (
                         <button
                           onClick={() => handleDelete(expense.id!)}
-                          disabled={deletingId === expense.id}
+                          disabled={saving || isAdding || Boolean(editingId) || deletingId === expense.id}
                           className="btn-icon !text-red-400 hover:!text-red-600 hover:!bg-red-50 dark:hover:!bg-red-900/30"
                           title="Desactivar desde este mes"
                         >
@@ -414,7 +428,7 @@ export default function ExpensesPage({ expenses, effectiveMonth, onSave, onDelet
             {expenses.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-6 py-12 text-center text-slate-400">
-                  No hay gastos registrados. Haz clic en "Agregar Gasto" para comenzar.
+                  {expenses.length ? "No hay gastos que coincidan con estos filtros." : "Todavía no hay gastos fijos. Usa Agregar Gasto para comenzar."}
                 </td>
               </tr>
             )}
@@ -432,13 +446,14 @@ export default function ExpensesPage({ expenses, effectiveMonth, onSave, onDelet
   );
 }
 
-function FormFields({ idPrefix, form, setForm }: {
+function FormFields({ idPrefix, form, setForm, disabled }: {
+  disabled: boolean;
   idPrefix: string;
   form: ExpenseSnapshot;
   setForm: React.Dispatch<React.SetStateAction<typeof form>>;
 }) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+    <fieldset disabled={disabled} className="min-w-0 grid grid-cols-1 md:grid-cols-6 gap-3">
       <div>
         <label htmlFor={`${idPrefix}-name`} className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Nombre</label>
         <input
@@ -513,6 +528,6 @@ function FormFields({ idPrefix, form, setForm }: {
           onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
         />
       </div>
-    </div>
+    </fieldset>
   );
 }

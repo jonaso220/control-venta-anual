@@ -292,7 +292,7 @@ function AppContent() {
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
-        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+        <Loader2 aria-hidden="true" className="w-8 h-8 text-blue-600 animate-spin" /><span role="status" className="ml-3">Comprobando acceso…</span>
       </div>
     );
   }
@@ -306,7 +306,8 @@ function AppContent() {
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-slate-900">
       <Sidebar activeTab={activeTab} onTabChange={setActiveTab} open={sidebarOpen} onOpenChange={setSidebarOpen} />
-      <main className="flex-1 min-w-0 overflow-auto">
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 btn-primary">Saltar al contenido</a>
+      <main id="main-content" tabIndex={-1} className="flex-1 min-w-0 overflow-auto">
         <header className="bg-white border-b border-slate-200 px-3 sm:px-4 lg:px-8 py-3 lg:py-4 flex items-center gap-3 sticky top-0 z-10 dark:bg-slate-800 dark:border-slate-700">
           <button
             onClick={() => setSidebarOpen(true)}
@@ -315,8 +316,9 @@ function AppContent() {
           >
             <Menu className="w-5 h-5 text-slate-700 dark:text-slate-200" />
           </button>
-          <div className="ml-auto">
-            <YearSelector year={year} onChange={setYear} />
+          <p className="font-semibold text-sm sm:text-base text-slate-900 dark:text-slate-100 min-w-0">{{ dashboard: 'Resumen', sales: 'Ventas', expenses: 'Gastos fijos', 'variable-expenses': 'Gastos variables', prices: 'Precios y márgenes', settings: 'Informes y respaldos' }[activeTab]}</p>
+          <div className="ml-auto shrink-0">
+            {activeTab === 'expenses' ? <p className="text-xs text-slate-500 dark:text-slate-300">Cambios desde<br /><strong>{getCurrentYearMonth()}</strong></p> : <YearSelector year={year} onChange={setYear} />}
           </div>
         </header>
         <div className="p-3 sm:p-4 lg:p-8">
@@ -335,7 +337,7 @@ function AppContent() {
           ) : !scopeReady ? (
             <div role="status" aria-live="polite" className="flex items-center justify-center gap-3 py-20 text-slate-500">
               <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
-              <span className="sr-only">Cargando datos del año {year}</span>
+              <span>Cargando datos de {year}…</span>
             </div>
           ) : (
             <SectionErrorBoundary resetKey={`${activeTab}:${year}`}>

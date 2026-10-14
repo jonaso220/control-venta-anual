@@ -31,7 +31,7 @@ describe('exportYearExcel', () => {
       'Ventas',
       'Gastos Fijos',
       'Gastos Variables',
-      'Márgenes actuales',
+      'Márgenes anteriores',
     ]);
     expect(sheets.every((sheet: { data: unknown[] }) => sheet.data.length > 0)).toBe(true);
     expect(writer.toFile).toHaveBeenCalledWith('informe_anual_2026.xlsx');
@@ -79,4 +79,19 @@ describe('exportYearExcel', () => {
     expect(fixedSheet.data[1]).toEqual(['Enero', 'Alquiler anterior', 'Otros', 'Mensual', 100, 'Activo', '']);
     expect(fixedSheet.data[7]).toEqual(['Julio', 'Alquiler nuevo', 'Otros', 'Mensual', 200, 'Activo', '']);
   });
+});
+
+it('exporta subtotales conocidos y deja explícito el precio anterior no registrado', async () => {
+  writer.writeXlsxFile.mockClear();
+  const { monthPeriods, sumUnits } = await import('../src/domain/pricing');
+  const a = (n: number) => ({ sifones: n, litros6: n, litros12: n, litros20: n });
+  const prices = { ...a(2), tariffs: [{ effectiveFrom: '2026-10-12', margins: a(3), publicPrices: a(12) }] };
+  const rows = monthPeriods(prices, 2026, 10); rows[0].sifones = 4; rows[1].sifones = 6;
+  await exportYearExcel([{ year: 2026, month: 10, ...sumUnits(rows), allocations: rows }], [], [], prices, 2026);
+  const sheets = writer.writeXlsxFile.mock.calls[0][0];
+  const summary = sheets.find((s: { sheet: string }) => s.sheet === 'Resumen');
+  expect(summary.data[10].slice(0, 5)).toEqual(['Octubre', 72, 54, 4, 26]);
+  const detail = sheets.find((s: { sheet: string }) => s.sheet === 'Detalle por vigencia');
+  expect(detail.data[1].slice(-3)).toEqual(['No registrado', 2, 'No calculable sin precio público']);
+  expect(detail.data[5].slice(-3)).toEqual([12, 3, 54]);
 });
