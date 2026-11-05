@@ -6,6 +6,9 @@ import PricesPage from '../src/components/PricesPage';
 import PriceSchedule from '../src/components/PriceSchedule';
 import SalesBreakdown from '../src/components/SalesBreakdown';
 import SalesAmountsSummary from '../src/components/SalesAmountsSummary';
+import SalesPage from '../src/components/SalesPage';
+import { monthPeriods } from '../src/domain/pricing';
+import type { SalesEntry } from '../src/types';
 const amounts = (n: number) => ({ sifones: n, litros6: n, litros12: n, litros20: n });
 const prices = { ...amounts(2), tariffs: [
   { effectiveFrom: '2026-01-01', margins: amounts(2), publicPrices: amounts(10) },
@@ -52,6 +55,50 @@ describe('precios por fecha y desglose explícito', () => {
     expect(screen.getByText('Precio público no registrado')).toBeVisible();
     expect(screen.getByText('No calculable sin precio público')).toBeVisible();
     expect(screen.getByText(/No es un registro de pagos/)).toBeVisible();
+  });
+});
+
+describe('Editar un mes que se registra por tramos', () => {
+  function renderSalesPage(sales: SalesEntry[], onSave = vi.fn(async () => {})) {
+    Element.prototype.scrollIntoView = vi.fn();
+    render(<SalesPage sales={sales} prices={prices} expenses={[]} variableExpenses={[]} year={2026} onSave={onSave} onOpenMargins={vi.fn()} goals={[]} onSaveGoal={vi.fn()} />);
+    return onSave;
+  }
+  const clickEditOctober = (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getAllByRole('button', { name: 'Editar ventas de Octubre' })[0]);
+
+  it('abre el formulario de octubre sin registro y permite guardar sus ventas', async () => {
+    const user = userEvent.setup(); const save = renderSalesPage([]);
+    await clickEditOctober(user);
+    expect(screen.getByLabelText('Mes del desglose')).toHaveValue('10');
+    await user.clear(screen.getByLabelText('2026-10-01: Sifones'));
+    await user.type(screen.getByLabelText('2026-10-01: Sifones'), '4');
+    await user.clear(screen.getByLabelText('2026-10-12: Sifones'));
+    await user.type(screen.getByLabelText('2026-10-12: Sifones'), '6');
+    await user.click(screen.getByRole('checkbox'));
+    await user.click(screen.getByRole('button', { name: 'Guardar desglose' }));
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ year: 2026, month: 10, sifones: 10 }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('abre con las cantidades guardadas y no pierde lo escrito al pulsar Editar otra vez', async () => {
+    const user = userEvent.setup();
+    const [before, after] = monthPeriods(prices, 2026, 10);
+    renderSalesPage([{ year: 2026, month: 10, ...amounts(0), sifones: 7, marginSnapshot: amounts(2), allocations: [{ ...before, sifones: 3 }, { ...after, sifones: 4 }] }]);
+    await clickEditOctober(user);
+    const first = screen.getByLabelText('2026-10-01: Sifones');
+    expect(first).toHaveValue(3);
+    await user.clear(first); await user.type(first, '5');
+    await clickEditOctober(user);
+    expect(screen.getByLabelText('2026-10-01: Sifones')).toHaveValue(5);
+  });
+
+  it('cambiar de mes en el selector no abre el formulario por su cuenta', async () => {
+    const user = userEvent.setup(); renderSalesPage([]);
+    await clickEditOctober(user);
+    await user.selectOptions(screen.getByLabelText('Mes del desglose'), '11');
+    expect(screen.getByRole('button', { name: 'Registrar / desglosar mes' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Guardar desglose' })).not.toBeInTheDocument();
   });
 });
 

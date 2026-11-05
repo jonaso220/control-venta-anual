@@ -1,8 +1,9 @@
 import { saveErrorMessage } from '../domain/feedback';
 import { validAmounts } from '../domain/pricing';
-import SalesBreakdown from './SalesBreakdown';
+import SalesBreakdown, { type SalesBreakdownHandle } from './SalesBreakdown';
 import SalesAmountsSummary from './SalesAmountsSummary';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { CircleAlert, Save, Target, TrendingDown, TrendingUp } from 'lucide-react';
 import type { Expense, SalesEntry, PriceConfig, SalesGoal, VariableExpense } from '../types';
 import { MONTHS } from '../types';
@@ -41,6 +42,7 @@ export default function SalesPage({
   onSaveGoal,
 }: SalesPageProps) {
   const [breakdownMonth, setBreakdownMonth] = useState(new Date().getMonth() + 1);
+  const breakdownRef = useRef<SalesBreakdownHandle>(null);
   const [editingMonth, setEditingMonth] = useState<number | null>(null);
   const [form, setForm] = useState({ sifones: 0, litros6: 0, litros12: 0, litros20: 0 });
   const [saving, setSaving] = useState(false);
@@ -73,7 +75,9 @@ export default function SalesPage({
     setSaveError('');
     const existing = salesMap.get(month);
     if (existing?.allocations || (!existing && prices.tariffs?.length)) {
-      setBreakdownMonth(month);
+      // El desglose se remonta por mes: sin flushSync, el ref seguiría apuntando al mes anterior.
+      flushSync(() => setBreakdownMonth(month));
+      breakdownRef.current?.open();
       document.getElementById('sales-breakdown')?.scrollIntoView({ behavior: 'smooth' });
       return;
     }
@@ -144,7 +148,7 @@ export default function SalesPage({
 
       <p className="text-sm text-slate-500 dark:text-slate-400">Registra cantidades por mes. Si cambió el precio dentro del mes, reparte las unidades en los tramos que corresponden. La ganancia acumulada incluye los meses transcurridos.</p>
       {saveError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300">{saveError}</p>}
-      <div id="sales-breakdown"><SalesBreakdown key={`${year}-${breakdownMonth}`} month={breakdownMonth} onMonthChange={setBreakdownMonth} year={year} prices={prices} sales={sales} onSave={onSave} /></div>
+      <div id="sales-breakdown"><SalesBreakdown ref={breakdownRef} key={`${year}-${breakdownMonth}`} month={breakdownMonth} onMonthChange={setBreakdownMonth} year={year} prices={prices} sales={sales} onSave={onSave} /></div>
       {!marginsConfigured && (
         <div role="alert" className="flex flex-col gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-100 sm:flex-row sm:items-start">
           <div className="flex items-start gap-3 sm:flex-1">

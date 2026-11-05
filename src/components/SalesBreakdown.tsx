@@ -1,5 +1,5 @@
 import { saveErrorMessage } from '../domain/feedback';
-import { useState } from 'react';
+import { useImperativeHandle, useState, type Ref } from 'react';
 import type { PriceConfig, SalesAllocation, SalesEntry } from '../types';
 import { MONTHS } from '../types';
 import { monthPeriods, prepareAllocatedSale, PRODUCTS, PRODUCT_LABELS, samePeriods, sumUnits } from '../domain/pricing';
@@ -7,9 +7,14 @@ import { calculateSalesMargin } from '../domain/finance';
 import { salesAmounts } from '../domain/pricing';
 import { formatCurrency } from '../utils/format';
 
-export default function SalesBreakdown({ year, prices, sales, onSave, month, onMonthChange }: {
+export interface SalesBreakdownHandle {
+  open: () => void;
+}
+
+export default function SalesBreakdown({ year, prices, sales, onSave, month, onMonthChange, ref }: {
   month: number; onMonthChange: (month: number) => void;
   year: number; prices: PriceConfig; sales: SalesEntry[]; onSave: (entry: SalesEntry) => Promise<void>;
+  ref?: Ref<SalesBreakdownHandle>;
 }) {
   const [rows, setRows] = useState<SalesAllocation[] | null>(null);
   const [confirmed, setConfirmed] = useState(false);
@@ -28,6 +33,7 @@ export default function SalesBreakdown({ year, prices, sales, onSave, month, onM
       setError(''); setConfirmed(false);
     } catch (e) { setError((e as Error).message); }
   }
+  useImperativeHandle(ref, () => ({ open: () => { if (!rows) begin(false); } }));
   async function save() {
     if (!draft || !confirmed) return;
     setSaving(true); setError('');
