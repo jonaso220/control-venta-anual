@@ -1,9 +1,8 @@
 import { saveErrorMessage } from '../domain/feedback';
-import { validAmounts } from '../domain/pricing';
-import SalesBreakdown, { type SalesBreakdownHandle } from './SalesBreakdown';
+import { allocateToLatestPeriod, monthPeriods, validAmounts } from '../domain/pricing';
+import SalesBreakdown from './SalesBreakdown';
 import SalesAmountsSummary from './SalesAmountsSummary';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { flushSync } from 'react-dom';
 import { CircleAlert, Save, Target, TrendingDown, TrendingUp } from 'lucide-react';
 import type { Expense, SalesEntry, PriceConfig, SalesGoal, VariableExpense } from '../types';
 import { MONTHS } from '../types';
@@ -42,7 +41,6 @@ export default function SalesPage({
   onSaveGoal,
 }: SalesPageProps) {
   const [breakdownMonth, setBreakdownMonth] = useState(new Date().getMonth() + 1);
-  const breakdownRef = useRef<SalesBreakdownHandle>(null);
   const [editingMonth, setEditingMonth] = useState<number | null>(null);
   const [form, setForm] = useState({ sifones: 0, litros6: 0, litros12: 0, litros20: 0 });
   const [saving, setSaving] = useState(false);
@@ -69,18 +67,11 @@ export default function SalesPage({
   );
   const marginsConfigured = Boolean(prices.tariffs?.length) || hasConfiguredMargins(prices);
   const existingEditingEntry = editingMonth === null ? undefined : salesMap.get(editingMonth);
-  const canSaveEditing = !existingEditingEntry?.allocations && Boolean(existingEditingEntry || !prices.tariffs?.length) && (marginsConfigured || isValidProductAmounts(existingEditingEntry?.marginSnapshot));
+  const canSaveEditing = marginsConfigured || isValidProductAmounts(existingEditingEntry?.marginSnapshot);
 
   function startEditing(month: number) {
     setSaveError('');
     const existing = salesMap.get(month);
-    if (existing?.allocations || (!existing && prices.tariffs?.length)) {
-      // El desglose se remonta por mes: sin flushSync, el ref seguiría apuntando al mes anterior.
-      flushSync(() => setBreakdownMonth(month));
-      breakdownRef.current?.open();
-      document.getElementById('sales-breakdown')?.scrollIntoView({ behavior: 'smooth' });
-      return;
-    }
     setForm({
       sifones: existing?.sifones ?? 0,
       litros6: existing?.litros6 ?? 0,
@@ -98,12 +89,17 @@ export default function SalesPage({
     if (!validAmounts(form, true)) { setSaveError("Introduce unidades enteras entre 0 y mil millones."); return; }
     setSaveError(''); setSaving(true);
     try {
-      await onSave(freezeSalesMargins({
-        year,
-        month: editingMonth,
-        ...form,
-        marginSnapshot: existing?.marginSnapshot,
-      }, prices));
+      if (existing?.allocations || (!existing && prices.tariffs?.length)) {
+        const periods = existing?.allocations ?? monthPeriods(prices, year, editingMonth, prices);
+        await onSave({ year, month: editingMonth, ...form, allocations: allocateToLatestPeriod(periods, form) });
+      } else {
+        await onSave(freezeSalesMargins({
+          year,
+          month: editingMonth,
+          ...form,
+          marginSnapshot: existing?.marginSnapshot,
+        }, prices));
+      }
       setEditingMonth(null);
     } catch (error) {
       setSaveError(saveErrorMessage(error));
@@ -146,9 +142,8 @@ export default function SalesPage({
         </div>
       </div>
 
-      <p className="text-sm text-slate-500 dark:text-slate-400">Registra cantidades por mes. Si cambió el precio dentro del mes, reparte las unidades en los tramos que corresponden. La ganancia acumulada incluye los meses transcurridos.</p>
+      <p className="text-sm text-slate-500 dark:text-slate-400">Pulsa «Editar» en el mes y escribe lo que vendiste; la ganancia se calcula sola. Si el precio cambió dentro del mes, se aplica el precio nuevo a todo el mes. La ganancia acumulada incluye los meses transcurridos.</p>
       {saveError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300">{saveError}</p>}
-      <div id="sales-breakdown"><SalesBreakdown ref={breakdownRef} key={`${year}-${breakdownMonth}`} month={breakdownMonth} onMonthChange={setBreakdownMonth} year={year} prices={prices} sales={sales} onSave={onSave} /></div>
       {!marginsConfigured && (
         <div role="alert" className="flex flex-col gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-100 sm:flex-row sm:items-start">
           <div className="flex items-start gap-3 sm:flex-1">
@@ -165,7 +160,8 @@ export default function SalesPage({
       )}
 
       <details className="card"><summary className="font-semibold cursor-pointer">Ver importes al público y para la empresa</summary><div className="mt-4"><SalesAmountsSummary year={year} sales={sales} prices={prices} /></div></details>
-      <p className="text-xs text-slate-500 dark:text-slate-400">Los meses sin registro muestran cero unidades. «Editar» cambia el total conservando su margen; el desglose permite aplicar distintos precios con confirmación.</p>
+      <details className="card"><summary className="font-semibold cursor-pointer">Repartir a mano por tramos de precio (opcional)</summary><div className="mt-4"><SalesBreakdown key={`${year}-${breakdownMonth}`} month={breakdownMonth} onMonthChange={setBreakdownMonth} year={year} prices={prices} sales={sales} onSave={onSave} /></div></details>
+      <p className="text-xs text-slate-500 dark:text-slate-400">Los meses sin registro muestran cero unidades.</p>
       {/* Mobile card view */}
       <div className="md:hidden space-y-3">
         {Array.from({ length: 12 }, (_, i) => i + 1).map(month => {
@@ -305,19 +301,19 @@ export default function SalesPage({
                     <>
                       <td className="px-4 sm:px-6 py-2">
                         <label htmlFor={`sales-desktop-${year}-${month}-sifones`} className="sr-only">{MONTHS[month - 1]}: Sifones</label>
-                        <input id={`sales-desktop-${year}-${month}-sifones`} name={`sales-desktop-${year}-${month}-sifones`} type="number" min="0" className="input-field text-right !py-1.5" value={form.sifones} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, sifones: Number(e.target.value) || 0 }))} />
+                        <input id={`sales-desktop-${year}-${month}-sifones`} name={`sales-desktop-${year}-${month}-sifones`} type="number" min="0" className="input-field text-right !py-1.5 !px-2 min-w-20" value={form.sifones} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, sifones: Number(e.target.value) || 0 }))} />
                       </td>
                       <td className="px-4 sm:px-6 py-2">
                         <label htmlFor={`sales-desktop-${year}-${month}-litros6`} className="sr-only">{MONTHS[month - 1]}: 6 Litros</label>
-                        <input id={`sales-desktop-${year}-${month}-litros6`} name={`sales-desktop-${year}-${month}-litros6`} type="number" min="0" className="input-field text-right !py-1.5" value={form.litros6} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros6: Number(e.target.value) || 0 }))} />
+                        <input id={`sales-desktop-${year}-${month}-litros6`} name={`sales-desktop-${year}-${month}-litros6`} type="number" min="0" className="input-field text-right !py-1.5 !px-2 min-w-20" value={form.litros6} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros6: Number(e.target.value) || 0 }))} />
                       </td>
                       <td className="px-4 sm:px-6 py-2">
                         <label htmlFor={`sales-desktop-${year}-${month}-litros12`} className="sr-only">{MONTHS[month - 1]}: 12 Litros</label>
-                        <input id={`sales-desktop-${year}-${month}-litros12`} name={`sales-desktop-${year}-${month}-litros12`} type="number" min="0" className="input-field text-right !py-1.5" value={form.litros12} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros12: Number(e.target.value) || 0 }))} />
+                        <input id={`sales-desktop-${year}-${month}-litros12`} name={`sales-desktop-${year}-${month}-litros12`} type="number" min="0" className="input-field text-right !py-1.5 !px-2 min-w-20" value={form.litros12} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros12: Number(e.target.value) || 0 }))} />
                       </td>
                       <td className="px-4 sm:px-6 py-2">
                         <label htmlFor={`sales-desktop-${year}-${month}-litros20`} className="sr-only">{MONTHS[month - 1]}: 20 Litros</label>
-                        <input id={`sales-desktop-${year}-${month}-litros20`} name={`sales-desktop-${year}-${month}-litros20`} type="number" min="0" className="input-field text-right !py-1.5" value={form.litros20} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros20: Number(e.target.value) || 0 }))} />
+                        <input id={`sales-desktop-${year}-${month}-litros20`} name={`sales-desktop-${year}-${month}-litros20`} type="number" min="0" className="input-field text-right !py-1.5 !px-2 min-w-20" value={form.litros20} onFocus={e => e.target.select()} onChange={e => setForm(f => ({ ...f, litros20: Number(e.target.value) || 0 }))} />
                       </td>
                       <td className="px-4 sm:px-6 py-3 text-right text-slate-400">-</td>
                       <td className="px-4 sm:px-6 py-3 text-right text-slate-400">-</td>

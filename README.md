@@ -86,9 +86,12 @@ inventa una distribución diaria. En **Precios** se añaden vigencias con fecha
 El importe de la empresa por unidad es público menos margen. No se registra ni se
 presupone ningún pago efectuado.
 
-En **Ventas → Ventas por vigencia**, selecciona el mes e introduce las unidades
-reales de cada tramo. Por ejemplo, un aumento el 12 de octubre genera los tramos
-1–11 y 12–31. Configura primero las tarifas necesarias para cubrir todo el mes;
+En **Ventas**, pulsa **Editar** en el mes e introduce el total vendido. Si el precio
+cambió dentro del mes, todo el mes se calcula con el precio nuevo: las unidades se
+guardan en el último tramo. Por ejemplo, un aumento el 12 de octubre genera los
+tramos 1–11 y 12–31, y el total queda en 12–31. Para indicar las unidades reales de
+cada tramo, usa la sección opcional **Repartir a mano por tramos de precio**.
+Configura primero las tarifas necesarias para cubrir todo el mes;
 se pueden añadir fechas anteriores faltantes. No hay precios privados por defecto.
 Los importes admiten dos decimales, margen cero y precio cero explícitos.
 

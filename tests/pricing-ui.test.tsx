@@ -7,7 +7,8 @@ import PriceSchedule from '../src/components/PriceSchedule';
 import SalesBreakdown from '../src/components/SalesBreakdown';
 import SalesAmountsSummary from '../src/components/SalesAmountsSummary';
 import SalesPage from '../src/components/SalesPage';
-import { monthPeriods } from '../src/domain/pricing';
+import { calculateSalesMargin } from '../src/domain/finance';
+import { monthPeriods, prepareAllocatedSale } from '../src/domain/pricing';
 import type { SalesEntry } from '../src/types';
 const amounts = (n: number) => ({ sifones: n, litros6: n, litros12: n, litros20: n });
 const prices = { ...amounts(2), tariffs: [
@@ -58,47 +59,59 @@ describe('precios por fecha y desglose explícito', () => {
   });
 });
 
-describe('Editar un mes que se registra por tramos', () => {
-  function renderSalesPage(sales: SalesEntry[], onSave = vi.fn(async () => {})) {
-    Element.prototype.scrollIntoView = vi.fn();
-    render(<SalesPage sales={sales} prices={prices} expenses={[]} variableExpenses={[]} year={2026} onSave={onSave} onOpenMargins={vi.fn()} goals={[]} onSaveGoal={vi.fn()} />);
-    return onSave;
+describe('Editar el total de un mes en su fila', () => {
+  function renderSalesPage(sales: SalesEntry[]) {
+    const save = vi.fn<(entry: SalesEntry) => Promise<void>>(async () => {});
+    render(<SalesPage sales={sales} prices={prices} expenses={[]} variableExpenses={[]} year={2026} onSave={save} onOpenMargins={vi.fn()} goals={[]} onSaveGoal={vi.fn()} />);
+    return save;
   }
-  const clickEditOctober = (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getAllByRole('button', { name: 'Editar ventas de Octubre' })[0]);
+  async function enterSifones(user: ReturnType<typeof userEvent.setup>, month: string, units: string) {
+    await user.click(screen.getAllByRole('button', { name: `Editar ventas de ${month}` })[0]);
+    const input = screen.getByLabelText(`${month}: Sifones`);
+    await user.clear(input); await user.type(input, units);
+    await user.click(screen.getAllByRole('button', { name: 'Guardar' })[0]);
+  }
 
-  it('abre el formulario de octubre sin registro y permite guardar sus ventas', async () => {
+  it('calcula todo octubre con el precio nuevo aunque cambiara el día 12', async () => {
     const user = userEvent.setup(); const save = renderSalesPage([]);
-    await clickEditOctober(user);
-    expect(screen.getByLabelText('Mes del desglose')).toHaveValue('10');
-    await user.clear(screen.getByLabelText('2026-10-01: Sifones'));
-    await user.type(screen.getByLabelText('2026-10-01: Sifones'), '4');
-    await user.clear(screen.getByLabelText('2026-10-12: Sifones'));
-    await user.type(screen.getByLabelText('2026-10-12: Sifones'), '6');
-    await user.click(screen.getByRole('checkbox'));
-    await user.click(screen.getByRole('button', { name: 'Guardar desglose' }));
-    expect(save).toHaveBeenCalledTimes(1);
-    expect(save).toHaveBeenCalledWith(expect.objectContaining({ year: 2026, month: 10, sifones: 10 }));
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await enterSifones(user, 'Octubre', '10');
+    const entry = save.mock.calls[0][0];
+    expect(entry.sifones).toBe(10);
+    expect(entry.allocations?.map(row => row.sifones)).toEqual([0, 10]);
+    expect(calculateSalesMargin(entry, prices)).toBe(30);
+    expect(() => prepareAllocatedSale(entry, undefined, prices)).not.toThrow();
   });
 
-  it('abre con las cantidades guardadas y no pierde lo escrito al pulsar Editar otra vez', async () => {
+  it('un mes con un solo precio guarda un único tramo', async () => {
+    const user = userEvent.setup(); const save = renderSalesPage([]);
+    await enterSifones(user, 'Noviembre', '10');
+    const entry = save.mock.calls[0][0];
+    expect(entry.allocations?.map(row => row.sifones)).toEqual([10]);
+    expect(calculateSalesMargin(entry, prices)).toBe(30);
+  });
+
+  it('precarga el total de un mes ya desglosado y conserva sus tramos guardados', async () => {
     const user = userEvent.setup();
     const [before, after] = monthPeriods(prices, 2026, 10);
-    renderSalesPage([{ year: 2026, month: 10, ...amounts(0), sifones: 7, marginSnapshot: amounts(2), allocations: [{ ...before, sifones: 3 }, { ...after, sifones: 4 }] }]);
-    await clickEditOctober(user);
-    const first = screen.getByLabelText('2026-10-01: Sifones');
-    expect(first).toHaveValue(3);
-    await user.clear(first); await user.type(first, '5');
-    await clickEditOctober(user);
-    expect(screen.getByLabelText('2026-10-01: Sifones')).toHaveValue(5);
+    const existing = { year: 2026, month: 10, ...amounts(0), sifones: 7, marginSnapshot: amounts(2), allocations: [{ ...before, sifones: 3 }, { ...after, sifones: 4 }] };
+    const save = renderSalesPage([existing]);
+    await user.click(screen.getAllByRole('button', { name: 'Editar ventas de Octubre' })[0]);
+    expect(screen.getByLabelText('Octubre: Sifones')).toHaveValue(7);
+    await user.clear(screen.getByLabelText('Octubre: Sifones'));
+    await user.type(screen.getByLabelText('Octubre: Sifones'), '10');
+    await user.click(screen.getAllByRole('button', { name: 'Guardar' })[0]);
+    const entry = save.mock.calls[0][0];
+    expect(entry.allocations?.map(row => row.sifones)).toEqual([0, 10]);
+    expect(() => prepareAllocatedSale(entry, existing, prices)).not.toThrow();
   });
 
-  it('cambiar de mes en el selector no abre el formulario por su cuenta', async () => {
-    const user = userEvent.setup(); renderSalesPage([]);
-    await clickEditOctober(user);
-    await user.selectOptions(screen.getByLabelText('Mes del desglose'), '11');
-    expect(screen.getByRole('button', { name: 'Registrar / desglosar mes' })).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Guardar desglose' })).not.toBeInTheDocument();
+  it('un mes antiguo sin desglose conserva su margen histórico', async () => {
+    const user = userEvent.setup();
+    const save = renderSalesPage([{ year: 2026, month: 3, ...amounts(0), sifones: 5, marginSnapshot: amounts(1) }]);
+    await enterSifones(user, 'Marzo', '9');
+    const entry = save.mock.calls[0][0];
+    expect(entry.allocations).toBeUndefined();
+    expect(entry.marginSnapshot).toEqual(amounts(1));
   });
 });
 

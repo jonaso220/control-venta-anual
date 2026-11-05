@@ -55,6 +55,9 @@ export function samePeriods(a: SalesAllocation[], b: SalesAllocation[]): boolean
     && sameAmounts(p.marginSnapshot, b[i].marginSnapshot) && (p.publicPriceSnapshot === null || b[i].publicPriceSnapshot === null
       ? p.publicPriceSnapshot === b[i].publicPriceSnapshot : sameAmounts(p.publicPriceSnapshot, b[i].publicPriceSnapshot!)));
 }
+export function allocateToLatestPeriod(periods: SalesAllocation[], units: ProductAmounts): SalesAllocation[] {
+  return periods.map((period, index) => ({ ...period, ...(index === periods.length - 1 ? units : emptyAmounts()) }));
+}
 export function sumUnits(rows: ProductAmounts[]): ProductAmounts {
   return Object.fromEntries(PRODUCTS.map(k => [k, rows.reduce((total, row) => total + row[k], 0)])) as unknown as ProductAmounts;
 }

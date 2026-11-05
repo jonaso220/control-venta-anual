@@ -784,6 +784,26 @@ test('desglose mensual conserva snapshots, totales y aislamiento por usuario', a
   const saved = (await getDoc(saleRef)).data(); assert.deepEqual(saved.marginSnapshot, amounts(2));
 });
 
+test('el total del mes en el último tramo se guarda al crear y sobre un desglose existente', async () => {
+  const { allocateToLatestPeriod, monthPeriods } = await import('../src/domain/pricing.ts');
+  const { saveSalesEntry, savePriceTariff } = await import('../src/services/firestore.ts');
+  const db = dbFor('alice');
+  const a = n => ({ sifones: n, litros6: n, litros12: n, litros20: n });
+  await savePriceTariff('alice', 2026, { effectiveFrom: '2026-01-01', margins: a(2), publicPrices: a(10) }, db);
+  const prices = await savePriceTariff('alice', 2026, { effectiveFrom: '2026-10-12', margins: a(3), publicPrices: a(12) }, db);
+  const entry = (month, periods, units) => ({ year: 2026, month, ...units, allocations: allocateToLatestPeriod(periods, units) });
+
+  const empty = await saveSalesEntry('alice', entry(10, monthPeriods(prices, 2026, 10), a(0)), db);
+  await saveSalesEntry('alice', entry(10, empty.allocations, a(5)), db);
+  const october = (await getDoc(doc(db, 'users/alice/sales/2026-10'))).data();
+  assert.deepEqual(october.allocations.map(row => row.sifones), [0, 5]);
+  assert.equal(october.allocations[1].marginSnapshot.sifones, 3);
+
+  await saveSalesEntry('alice', entry(11, monthPeriods(prices, 2026, 11), a(4)), db);
+  const november = (await getDoc(doc(db, 'users/alice/sales/2026-11'))).data();
+  assert.deepEqual(november.allocations.map(row => row.sifones), [4]);
+});
+
 test('24 vigencias anuales y dos tramos mensuales dentro de límites de reglas', async () => {
   const { monthPeriods, sumUnits } = await import('../src/domain/pricing.ts');
   const db = dbFor('alice');
